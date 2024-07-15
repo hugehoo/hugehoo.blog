@@ -9,9 +9,10 @@ interface Props {
 }
 
 const PostCard = ({ post }: Props) => {
+  console.log('url:', post.url)
   return (
-    <Link href={post.url}>
-      <li className='flex h-full flex-col gap-3 overflow-hidden rounded-md border shadow-md transition hover:shadow-xl dark:border-slate-700 dark:hover:border-white'>
+    <Link className='block max-w-sm' href={post.url}>
+      <li className='flex flex-col gap-3 overflow-hidden rounded-md border shadow-md transition hover:shadow-xl dark:border-slate-700 dark:hover:border-white'>
         <div className='relative aspect-video w-full rounded-t-md border-b'>
           <Image
             src={post.thumbnail}

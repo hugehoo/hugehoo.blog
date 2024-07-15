@@ -26,7 +26,7 @@ const CategoryList = async ({
 
   return (
     <>
-      <section>
+      <section className='mb-10 hidden sm:block'>
         <ul>
           <CategoryButton
             href='/blog'
@@ -44,10 +44,10 @@ const CategoryList = async ({
         </ul>
       </section>
       <section className='mb-10 sm:hidden'>
-
+        <p>waht this</p>
       </section>
     </>
-  )
+  );
 
 }
 
