@@ -1,5 +1,8 @@
+'use client';
 import CategoryButton from "./CategoryButton";
 import {CategoryDetail} from "@/config/types";
+import {useRouter} from "next/navigation";
+import {Select, SelectContent, SelectItem, SelectTrigger, SelectValue} from "@/components/ui/select";
 
 
 interface CategoryListProps {
@@ -8,21 +11,23 @@ interface CategoryListProps {
   currentCategory?: string;
 }
 
-const CategoryList = async ({
-                              categoryList,
-                              allPostCount,
-                              currentCategory = 'all'
-                            }: CategoryListProps) => {
+export const CategoryList = async ({
+                        categoryList,
+                        allPostCount,
+                        currentCategory = 'all'
+                      }: CategoryListProps) => {
 
-  // const router = useRouter();
-  //
-  // const onCategoryChange = (value: string) => {
-  //   if (value === 'all') {
-  //     router.push('/blog');
-  //   } else {
-  //     router.push(`/blog/${value}`);
-  //   }
-  // };
+  const router = useRouter();
+
+  const onCategoryChange = (value: string) => {
+    if (value === 'all') {
+      router.push('/blog');
+    } else {
+      router.push(`/blog/${value}`);
+    }
+  };
+
+  console.log(categoryList)
 
   return (
     <>
@@ -44,7 +49,19 @@ const CategoryList = async ({
         </ul>
       </section>
       <section className='mb-10 sm:hidden'>
-        <p>waht this</p>
+        <Select onValueChange={onCategoryChange}>
+          <SelectTrigger className='w-[180px]'>
+            <SelectValue placeholder='Theme'/>
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value='all'>All ({allPostCount})</SelectItem>
+            {categoryList.map((cg) => (
+              <SelectItem key={cg.dirName} value={cg.dirName}>
+                {cg.publicName} ({cg.count})
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </section>
     </>
   );

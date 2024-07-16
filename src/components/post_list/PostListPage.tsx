@@ -1,4 +1,4 @@
-import {getAllPostCount, getCategoryDetailList, getPostList} from "@/components/parsePostAbstract";
+import {getAllPostCount, getCategoryDetailList, getPostList} from "@/lib/post";
 import PostCard from "@/components/post_list/PostCard";
 import CategoryList from "@/components/post_list/CategoryList";
 
