@@ -11,7 +11,7 @@ interface Props {
   count: number;
 
 }
-const CategoryButton = async ({isCurrent, displayName, href, count}: Props) => {
+export const CategoryButton = async ({isCurrent, displayName, href, count}: Props) => {
 
   return (
     <>

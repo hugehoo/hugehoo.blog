@@ -1,8 +1,16 @@
 'use client';
-import CategoryButton from "./CategoryButton";
-import {CategoryDetail} from "@/config/types";
+
 import {useRouter} from "next/navigation";
-import {Select, SelectContent, SelectItem, SelectTrigger, SelectValue} from "@/components/ui/select";
+
+import {CategoryButton} from "./CategoryButton";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue
+} from "@/components/ui/select";
+import {CategoryDetail} from "@/config/types";
 
 
 interface CategoryListProps {
@@ -11,7 +19,7 @@ interface CategoryListProps {
   currentCategory?: string;
 }
 
-export const CategoryList = async ({
+const CategoryList = ({
                         categoryList,
                         allPostCount,
                         currentCategory = 'all'
@@ -65,7 +73,6 @@ export const CategoryList = async ({
       </section>
     </>
   );
-
-}
+};
 
 export default CategoryList;
