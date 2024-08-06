@@ -1,0 +1,82 @@
+.container {
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 20px;
+  background-color: #f0f0f0;
+}
+
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 80px;
+  /*padding-bottom: 40px;*/
+  /*border-bottom: 1px solid #333;*/
+}
+
+.title {
+  font-size: 4.5em;
+  max-width: 60%;
+}
+
+.ctaButton {
+  background-color: #ff4500;
+  color: white;
+  padding: 15px 30px;
+  border-radius: 50%;
+  text-decoration: none;
+  font-weight: bold;
+}
+
+.teamSection {
+  margin-bottom: 40px;
+}
+
+.teamSection h2 {
+  border-bottom: 1px solid #333;
+  padding-bottom: 10px;
+}
+
+.teamSection h3 {
+  border-bottom: 1px solid #333;
+  padding-bottom: 10px;
+  text-align: left;
+}
+.underlineTitle {
+  position: relative;
+  /*display: inline-block;*/
+  margin-bottom: 20px;
+  border-bottom: 1px solid #333;
+
+}
+
+.underlineTitle p {
+  font-size: 44px;
+  font-weight: bold;
+  margin: 0;
+  padding-bottom: 5px;
+}
+
+/*.underlineTitle::after {*/
+/*  content: '';*/
+/*  position: absolute;*/
+/*  left: 0;*/
+/*  bottom: 0;*/
+/*  width: 100%;*/
+/*  height: 2px;*/
+/*  !*background-color: #333; !* Change this to your desired underline color *!*!*/
+/*}*/
+
+.teamGrid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 20px;
+}
+
+.teamMember {
+  text-align: center;
+}
+
+.teamMember img {
+  border-radius: 5px;
+}
