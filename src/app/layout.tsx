@@ -1,10 +1,8 @@
-import type {Metadata} from "next";
-import {Inter} from "next/font/google";
-import {TeamPage} from "@/app/blog/TeamPage";
 import "./globals.css";
-import {Header} from "@/layouts/Header";
 import {Playfair_Display, Song_Myung} from 'next/font/google'
 import localFont from 'next/font/local'
+import Head from "next/head";
+import Blog from "./blog/(main)/page"
 
 const fogsta = localFont({
   src: '../../public/fonts/Fogsta.woff2',
@@ -20,11 +18,13 @@ const songMyung = Song_Myung({
 export default function RootLayout({children}: Readonly<{ children: React.ReactNode; }>) {
   return (
     <html lang="en" className={fogsta.className}>
-    {/*<body className='fonts-pretendard flex min-h-screen flex-col'>*/}
-    {/*<main className='mt-[64px] flex flex-1 flex-col'>{children}</main>*/}
-    {/*</body>*/}
+    <Head>
+      <title>Tech Blog Team Page</title>
+      <meta name="description" content="Our team building a world of positive consumption"/>
+      <link rel="icon" href="/src/app/favicon.ico"/>
+    </Head>
     <body>
-    <TeamPage/>
+    <Blog/>
     </body>
     </html>
   );

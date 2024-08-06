@@ -3,6 +3,7 @@
   margin: 0 auto;
   padding: 20px;
   background-color: #f0f0f0;
+  border: 1.5px solid #333;
 }
 
 .header {
@@ -11,9 +12,27 @@
   align-items: center;
   margin-bottom: 80px;
   /*padding-bottom: 40px;*/
-  /*border-bottom: 1px solid #333;*/
+  border-bottom: 1px solid #333;
 }
 
+.sideHeader {
+
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  height: 100%; /* or any specific height */
+  /*display: block;*/
+  /*justify-content: space-between;*/
+  align-items: center;
+}
+
+.sample{
+  position: relative;
+  font-size: 17px;
+  height: 130px;
+  /*top: 90px;*/
+  width: 180px;
+}
 .title {
   font-size: 4.5em;
   max-width: 60%;
@@ -22,10 +41,16 @@
 .ctaButton {
   background-color: #ff4500;
   color: white;
+  width: 190px;  /* 원하는 크기로 조정 */
+  height: 190px; /* 너비와 동일하게 설정 */
   padding: 15px 30px;
   border-radius: 50%;
+  display: flex;
   text-decoration: none;
   font-weight: bold;
+  justify-content: center;
+  align-items: center;
+  text-align: center;
 }
 
 .teamSection {
@@ -75,8 +100,10 @@
 
 .teamMember {
   text-align: center;
+
 }
 
 .teamMember img {
-  border-radius: 5px;
+  border-radius: 2px;
+  border: 1px solid #333333;
 }
