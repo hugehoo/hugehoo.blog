@@ -21,15 +21,12 @@ const CardSection = ({posts}: { posts: CardInterface[] }) => {
             frontImage={`${post.thumbnail}`}
             altText={post.title}
             backContent={
-
-
               <Link href={`blog/tech/${post.title}`}>
                 <div>
                   <h4>{post.title}</h4>
                   {/*<p>{post.role}</p>*/}
                 </div>
               </Link>
-
             }
             width={400}
             height={600}

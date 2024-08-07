@@ -10,7 +10,7 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 80px;
+  margin-bottom: 40px;
   /*padding-bottom: 40px;*/
   border-bottom: 1px solid #333;
 }
@@ -96,4 +96,12 @@
 .teamMember img {
   border-radius: 2px;
   border: 1px solid #333333;
+}
+
+
+.textContainer {
+  max-width: 100%;
+  display: block;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
 }

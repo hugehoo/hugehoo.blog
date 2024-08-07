@@ -1,8 +1,13 @@
-import {redirect} from "next/navigation";
+import MainIntro from "@/components/ui/MainIntro";
+import MainBlog from "@/components/ui/MainBlog";
 
-
-
-
-export default function Home() {
-  redirect('/blog');
+const Home = async () => {
+  return (
+    <>
+      <MainIntro/>
+      <MainBlog/>
+    </>
+  )
 }
+
+export default Home;
