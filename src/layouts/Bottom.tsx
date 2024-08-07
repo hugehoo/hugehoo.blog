@@ -9,7 +9,7 @@ export const Bottom = () => {
 
     <section className={styles.teamSection}>
       <div className={styles.underlineTitle}/>
-      <p>@copy rights</p>
+      <p>@huge.hoo</p>
     </section>
 
   );

@@ -1,26 +1,42 @@
-import styles from "@/app/blog/TeamPage.module.css";
-import FlipCard from "@/components/ui/FlipCard";
+import fs from 'fs';
+import path from 'path';
+import matter from 'gray-matter';
 import CardSection from "@/components/ui/CardSection";
+import styles from "@/app/blog/TeamPage.module.css";
+import {sync} from 'glob';
+
 
 export interface CardInterface {
-  name: string;
-  role: string;
+  title: string;
+  thumbnail: string;
 }
 
+const getPosts = (): CardInterface[] => {
+  const POSTS_PATH = path.join(process.cwd(), '/src/posts');
+  const folder = '**';
+  const postPaths: string[] = sync(`${POSTS_PATH}/${folder}/**/*.mdx`);
+
+  return postPaths.map(post => {
+    const file = fs.readFileSync(post, 'utf8');
+    const {data} = matter(file);
+    return {
+      title: data.title,
+      thumbnail: data.thumbnail
+    }
+  });
+}
+
+
 const MainBlog = () => {
-  const posts: CardInterface[] = [
-    {name: 'Post1', role: 'CEO BALENCIAGA'},
-    {name: 'Post2', role: 'CEO REBORN & YELLOW OCTOPUS'},
-    {name: 'Post3', role: 'FOUNDER THE MILLS'}
-  ];
+  const posts = getPosts();
   return (
     <section className={styles.teamSection}>
       <div className={styles.underlineTitle}>
         <p>Posts</p>
       </div>
-      <CardSection posts = {posts}/>
+      <CardSection posts={posts}/>
     </section>
-  )
-}
+  );
+};
 
 export default MainBlog;

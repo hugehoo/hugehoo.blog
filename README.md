@@ -1,7 +1,7 @@
 Todo
 - 도메인 사야징 룰루
 - Post routing
--
+- Post 서버에서 불러오기
 
 ref
 - https://yoonminlee.com/
@@ -11,3 +11,4 @@ ref
 - https://enjoydev.life/blog
 - https://kr.pinterest.com/pin/982558843698363432/
 ![img.png](img.png)
+- https://gyeongsun.com/
