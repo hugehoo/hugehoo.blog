@@ -9,6 +9,7 @@ import {sync} from 'glob';
 export interface CardInterface {
   title: string;
   thumbnail: string;
+  category: string;
 }
 
 const getPosts = (): CardInterface[] => {
@@ -19,9 +20,11 @@ const getPosts = (): CardInterface[] => {
   return postPaths.map(post => {
     const file = fs.readFileSync(post, 'utf8');
     const {data} = matter(file);
+    console.log(data)
     return {
       title: data.title,
-      thumbnail: data.thumbnail
+      thumbnail: data.thumbnail,
+      category: data.category
     }
   });
 }
