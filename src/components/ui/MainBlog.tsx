@@ -10,6 +10,8 @@ export interface CardInterface {
   title: string;
   thumbnail: string;
   category: string;
+  content: string;
+
 }
 
 const getPosts = (): CardInterface[] => {
@@ -17,14 +19,22 @@ const getPosts = (): CardInterface[] => {
   const folder = '**';
   const postPaths: string[] = sync(`${POSTS_PATH}/${folder}/**/*.mdx`);
 
+  //
+
+  // const file = fs.readFileSync(postPath, 'utf8');
+  // const { data, content } = matter(file);
+  // const grayMatter = data as PostMatter;
+  // const readingMinutes = Math.ceil(readingTime(content).minutes);
+  // const dateString = dayjs(grayMatter.date).locale('ko').format('YYYY년 MM월 DD일');
+  //
   return postPaths.map(post => {
     const file = fs.readFileSync(post, 'utf8');
-    const {data} = matter(file);
-    console.log(data)
+    const {data, content} = matter(file);
     return {
       title: data.title,
       thumbnail: data.thumbnail,
-      category: data.category
+      category: data.category,
+      content: content
     }
   });
 }
@@ -32,6 +42,8 @@ const getPosts = (): CardInterface[] => {
 
 const MainBlog = () => {
   const posts = getPosts();
+  // console.log("포스트")
+  // console.log(posts[0])
   return (
     <section className={styles.teamSection}>
       <div className={styles.underlineTitle}>

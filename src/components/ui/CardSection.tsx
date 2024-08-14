@@ -5,8 +5,6 @@ import {CardInterface} from "@/components/ui/MainBlog";
 import Link from "next/link";
 
 
-
-// const CardSection = (posts: CardInterface[]) => {
 const CardSection = ({posts}: { posts: CardInterface[] }) => {
   return (
     <div className={styles.teamGrid}>
@@ -21,10 +19,9 @@ const CardSection = ({posts}: { posts: CardInterface[] }) => {
             frontImage={`${post.thumbnail}`}
             altText={post.title}
             backContent={
-              <Link href={`blog/${post.category}/${post.title}`}>
+              <Link href={`blog/${post.category}/${decodeURIComponent(post.title)}`}>
                 <div>
                   <h4>{post.title}</h4>
-                  {/*<p>{post.role}</p>*/}
                 </div>
               </Link>
             }
