@@ -4,6 +4,42 @@ import {sync} from "glob";
 import fs from "fs";
 import matter from "gray-matter";
 import PostMarkdown from "@/app/blog/[category]/[post-name]/postMarkdown";
+import localFont from "next/font/local";
+
+
+const naSquare = localFont({
+  src: [
+    {
+      path: '../../../../../public/fonts/NanumSquareNeo-Variable.woff',
+      weight: '400',
+      style: 'normal',
+    },
+    {
+      path: '../../../../../public/fonts/NanumSquareNeoTTF-aLt.woff',
+      weight: '400',
+      style: 'normal',
+    },
+    {
+      path: '../../../../../public/fonts/NanumSquareNeoTTF-bRg.woff',
+      weight: '400',
+      style: 'normal',
+    }, {
+      path: '../../../../../public/fonts/NanumSquareNeoTTF-cBd.woff',
+      weight: '400',
+      style: 'normal',
+    }, {
+      path: '../../../../../public/fonts/NanumSquareNeoTTF-dEb.woff',
+      weight: '400',
+      style: 'normal',
+    },
+    {
+      path: '../../../../../public/fonts/NanumSquareNeoTTF-eHv.woff',
+      weight: '400',
+      style: 'normal',
+    },
+  ],
+  variable: '--font-nanum-square',
+})
 
 
 interface Props {
@@ -32,7 +68,10 @@ const Post = ({params}: Props) => {
     <div className={styles.textContainer}>
       <h1>Category: {category}</h1>
       <h2>Title: {decodedTitle}</h2>
-      <PostMarkdown params={{decodedTitle, content: mdx.content}}/>
+      {/*<div className={`${roboto.variable} ${styles.wrapper}`}>*/}
+      <div className={`${naSquare.variable} ${styles.wrapper}`}>
+        <PostMarkdown params={{decodedTitle, content: mdx.content}}/>
+      </div>
     </div>
   )
 }

@@ -6,8 +6,6 @@ thumbnail: /team-member-1.jpeg
 category: OpenAI
 ---
 
-#### 환영
-
 최근에 앱을 출시했답니다.⭐️
 
 **`Tidify`** 는 링크 아카이빙 서비스로, 링크를 복사하거나 Share Extension 을 사용하여 북마크를 자동으로 생성해주는 서비스입니다.
@@ -18,7 +16,7 @@ category: OpenAI
 
 ![img_13.png](/img_13.png)
 
-<br>
+
 
 ## OpenAI 도입 배경
 
@@ -32,7 +30,7 @@ com.mysql.cj.jdbc.exceptions.MysqlDataTruncation:
 Data truncation: Data too long for column 'name' at row 1
 ```
 
-<br>
+
 
 DB 에서 Table column 설정을 바꾸기 보단, 링크의 적절한 name 을 생성할 수 있는 방법을 구상했습니다.
 
@@ -44,17 +42,17 @@ url 을 파싱하여 1) 도메인만 저장하거나 2) 전체 url 대신, 특�
    가령 아래처럼 길이가 긴 url 을 특정 길이까지 slicing 하여 저장하면 어중간한 이름이 생성되버립니다.
 
 ``` bash
-Before : https://docs.google.com/presentation/d/1XnBMiHbgZmclXT4dLfI6Q7fnNnXQwfo165458o3Qzv4/mobilepresent?slide=id.p <br/>
+Before : https://docs.google.com/presentation/d/1XnBMiHbgZmclXT4dLfI6Q7fnNnXQwfo165458o3Qzv4/mobilepresent?slide=id.p
 After : https://docs.google.com/presen
 ```
 
-<br>
+
 
 이렇게 짤려버릴지도 모르는 일이니까요. 앱 UI 상엔 이렇게 저장되겠죠.
 
 ![img_14.png](./img_14.png)
 
-<br/>
+
 
 색다른 접근이 필요했습니다. 북마크 이름 입력을 강제하는 방법은 사용하고 싶지 않았습니다. 그런 식으로 해결하면 우선 저부터 앱을 사용하지 않을 것 같으니까요.
 
@@ -73,12 +71,12 @@ url 을 대표할 수 있는 북마크 이름을 자동으로 생성하는 것�
 위 같은 방법으로 프롬프트를 세팅할 수 있다면 충분히 url 의 이름을 자동으로 생성할 수 있을 것이라 생각했습니다.
 지체없이 코드를 짜보기로 했습니다.
 
-<br>
+
 
 ![img_6.png](/img_6.png)
 
-<br>
-<br>
+
+
 
 ## 사용 기술과 선정 배경
 
@@ -94,27 +92,28 @@ OpenAI API 를 사용하기로 결정했을 때 떠오른 옵션은 **`2가지`*
 
 현 단계에선 간단히 프롬프트를 세팅해, Url 에 맞는 북마크 이름을 추천 받기로 했습니다. (Pandas 는 다음 버전부터 적용하기로 ㅎ)
 
-<br>
+
 
 ## 개발
 
 개발 환경은 아래와 같습니다.
 
-- `python` 3.9
-- `fastapi` 0.95
-- `openai` 0.27.7
-- `uvicorn` 0.22.0
-- `pydantic` 1.10.8
-- `Pycharm`
+``` json
+- python 3.9
+- fastapi 0.95
+- openai 0.27.7
+- uvicorn 0.22.0
+- pydantic 1.10.8
+- Pycharm
+```
 
-<br>
 
 FastAPI 를 사용하기로 했으니 우선 프로젝트를 생성합니다.
 Pycharm 으로 간단히 FastAPI 프로젝트를 생성 할 수 있습니다.
 
 ![img_1.png](/img_1.png)
 
-<br>
+
 
 ### Main.py (Set up)
 
@@ -128,7 +127,7 @@ class Prompt(BaseModel):
     question: str
 ```
 
-<br>
+
 
 ### Main.py (End point)
 
@@ -156,12 +155,12 @@ async def ask_openai(prompt: Prompt) -> str:
     return semi_answer.split('\n')[0]
 ```
 
-<br>
+
 
 그리고 prompt 에 사용될 preset_prompt를 작성합니다. 프롬프트를 어떻게 작성하냐에 따라 얻을 수 있는 결과가 다릅니다.
 버전별로 프롬프트를 작성하며 어떤 응답을 얻는지 비교해보겠습니다.
 
-<hr>
+
 
 ## Version.1
 
@@ -184,7 +183,7 @@ Input URL : https://techblog.woowahan.com/12044
 OpenAI Answer : 웹사이트: https://techblog.woowahan.com/12044
 ```
 
-<hr>
+
 
 ## Version.2
 
@@ -242,7 +241,7 @@ Generate simple Korean name of this input URL: {prompt.question} \n
 """
 ```
 
-<br>
+
 
 ### 결과
 
@@ -257,9 +256,9 @@ Input URL : https://techblog.woowahan.com/12044
 OpenAI Answer : 우아한 기술 블로그
 ```
 
-<br>
 
-<hr>
+
+
 
 [또 다른 url](https://docs.google.com/forms/d/e/1FAIpQLSciq7dwuIV7t0g9cITjCnf1vq1xRjj6dTfAT7hDLiwcfUn17w/viewform) 로 테스트
 해보겠습니다.
@@ -282,11 +281,11 @@ Input URL : https://docs.google.com/forms/d/e/1FAIpQLSciq7dwuIV7t0g9cITjCnf1vq1x
 OpenAI Answer : Goolge Form 설문조사
 ```
 
-<br>
+
 
 난해한 url 이더라도 Prompt 를 어떻게 세팅하냐에 따라 응답 결과가 천차만별인 것을 확인할 수 있습니다.
 
-<br>
+
 
 
 ### Main.py (전체 코드)
@@ -334,9 +333,9 @@ if __name__ == "__main__":
 
 ```
 
-<br>
-<br>
-<br>
+
+
+
 
 ## 마무리
 
@@ -359,9 +358,9 @@ url 입력 후 북마크 이름을 따로 지정하지 않을 경우, OpenAI 에
 
 ![img_4.png](/img_4.png)
 
-<br>
-<br>
-<br>
+
+
+
 
 이렇게 제가 운영중인 서비스에 `OpenAI API` 를 적용해보았습니다.
 사용자 편의성을 위해 적용한 기능이 되려 장애를 일으킨 케이스였지만, 이를 AI 기술을 활용해 해결한 경험이었습니다.
@@ -371,8 +370,8 @@ url 입력 후 북마크 이름을 따로 지정하지 않을 경우, OpenAI 에
 그럼 전 Version.2 준비하러 20000
 
 
-<br>
 
-<br>
-<br>
+
+
+
 

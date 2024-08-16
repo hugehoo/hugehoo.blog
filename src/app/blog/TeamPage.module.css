@@ -105,3 +105,24 @@
   word-wrap: break-word;
   overflow-wrap: break-word;
 }
+.font-nanum-square {
+  font-family: var(--font-nanum-square);
+}
+
+/* 필요한 경우 추가 스타일 */
+.font-nanum-square h1 {
+  font-weight: 800; /* Extra Bold */
+}
+
+.font-nanum-square p {
+  font-weight: 400; /* Regular */
+}
+
+/* 기타 필요한 스타일 */
+.wrapper {
+  font-family: var(--font-nanum-square);
+}
+
+.wrapper * {
+  font-family: inherit !important;
+}
