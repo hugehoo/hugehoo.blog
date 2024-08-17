@@ -36,9 +36,10 @@ const PostMarkdown = ({params}: Props) => {
           img: ({src, alt}) => {
             const imagePath = `/posts/${decodedTitle}/${src}`;
             return (
-              <div style={{
-                position: 'relative', height: '400px',
-                // margin: '10px 0'
+              <span style={{
+                display: 'block',
+                position: 'relative',
+                height: '400px',
               }}>
                 <Image
                   src={imagePath}
@@ -47,7 +48,7 @@ const PostMarkdown = ({params}: Props) => {
                   fill
                   style={{objectFit: 'contain'}}
                 />
-              </div>
+              </span>
             );
           },
 
@@ -75,4 +76,4 @@ const PostMarkdown = ({params}: Props) => {
 }
 
 
-export default PostMarkdown;
+  export default PostMarkdown;
