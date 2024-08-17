@@ -29,8 +29,8 @@ const FlipCard: React.FC<FlipCardProps> = ({frontImage, altText, backContent, wi
         <div className={styles.flipCardFront}>
           <Image src={frontImage}
                  alt={altText}
-                 layout="fill"
-                 objectFit="cover"/>
+                 fill
+                 sizes={"400px"}/>
         </div>
         <div className={styles.flipCardBack}>
           {backContent}
