@@ -2,6 +2,7 @@
 
 import React, {useState, useEffect} from 'react';
 import styles from "@/app/blog/TeamPage.module.css";
+import Link from "next/link";
 
 const timePadding = (time: number) => time.toString().padStart(2, '0');
 
@@ -24,7 +25,7 @@ export const Header = () => {
       <h1 className={styles.title}>Developer Hoo</h1>
       <div className={styles.sideHeader}>
         <div className={styles.sample}>
-          <a href="#" className={styles.ctaButton}>Join the Movement</a>
+          <Link href="/" className={styles.ctaButton}>Join the Movement</Link>
         </div>
         <div className={styles.sample}>
           <br/>
