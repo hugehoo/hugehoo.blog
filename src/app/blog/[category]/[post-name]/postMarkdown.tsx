@@ -26,9 +26,9 @@ const PostMarkdown = ({params}: Props) => {
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         components={{
-          h1: ({node, ...props}) => <h1 style={{color: '#111', fontSize: '2em'}} {...props} />,
-          h2: ({node, ...props}) => <h2 style={{color: '#111', fontSize: '1.8em'}} {...props} />,
-          h3: ({node, ...props}) => <h3 style={{color: '#111', fontSize: '1.6em'}} {...props} />,
+          h1: ({node, ...props}) => <h1 style={{color: '#111', fontSize: '2em', margin: '2.5em 0 1em 0'}} {...props} />,
+          h2: ({node, ...props}) => <h2 style={{color: '#111', fontSize: '1.8em', margin: '2em 0 1em 0'}} {...props} />,
+          h3: ({node, ...props}) => <h3 style={{color: '#111', fontSize: '1.6em', margin: '2em 0 1em 0'}} {...props} />,
           h4: ({node, ...props}) => <h4 style={{color: '#111', fontSize: '1.4em'}} {...props} />,
           h5: ({node, ...props}) => <h5 style={{color: '#111', fontSize: '1.2em'}} {...props} />,
           h6: ({node, ...props}) => <h6 style={{color: '#111', fontSize: '1em'}} {...props} />,
@@ -39,14 +39,16 @@ const PostMarkdown = ({params}: Props) => {
               <span style={{
                 display: 'block',
                 position: 'relative',
-                height: '400px',
+                width: '100%'
               }}>
                 <Image
                   src={imagePath}
                   alt={alt || "Post image"}
                   unoptimized={true}
-                  fill
-                  style={{objectFit: 'contain'}}
+                  width={0}
+                  height={0}
+                  sizes="100vw"
+                  style={{ width: '80%', height: 'auto' }}
                 />
               </span>
             );
@@ -76,4 +78,4 @@ const PostMarkdown = ({params}: Props) => {
 }
 
 
-  export default PostMarkdown;
+export default PostMarkdown;
