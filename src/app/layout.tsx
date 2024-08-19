@@ -17,7 +17,7 @@ const fogsta = localFont({
 })
 
 export default function RootLayout({children}: Readonly<{ children: React.ReactNode; }>) {
-  let segment:string[] = useSelectedLayoutSegments();
+  let segment: string[] = useSelectedLayoutSegments();
   console.log('📌', segment)
 
   return (
@@ -32,7 +32,7 @@ export default function RootLayout({children}: Readonly<{ children: React.ReactN
 
     <div className={styles.container}>
       <main className={styles.main}>
-        segment.length == 0 ? <Header/> : <Header2/>;
+        {segment.length == 0 ? <Header/> : <Header2/>}
         {children}
         <Bottom/>
       </main>
