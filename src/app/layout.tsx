@@ -1,3 +1,5 @@
+'use client'
+
 import "./globals.css";
 import {Playfair_Display, Song_Myung} from 'next/font/google'
 import localFont from 'next/font/local'
@@ -6,6 +8,8 @@ import Blog from "./blog/(main)/page"
 import {Header} from "@/layouts/Header";
 import {Bottom} from "@/layouts/Bottom";
 import styles from "@/app/blog/TeamPage.module.css";
+import {useSelectedLayoutSegments} from "next/navigation";
+import {Header2} from "@/layouts/Header2";
 
 const fogsta = localFont({
   src: '../../public/fonts/Fogsta Italic.woff2',
@@ -13,6 +17,9 @@ const fogsta = localFont({
 })
 
 export default function RootLayout({children}: Readonly<{ children: React.ReactNode; }>) {
+  let segment:string[] = useSelectedLayoutSegments();
+  console.log('📌', segment)
+
   return (
     <html lang="en" className={fogsta.className}>
     <Head>
@@ -25,7 +32,7 @@ export default function RootLayout({children}: Readonly<{ children: React.ReactN
 
     <div className={styles.container}>
       <main className={styles.main}>
-        <Header/>
+        segment.length == 0 ? <Header/> : <Header2/>;
         {children}
         <Bottom/>
       </main>
