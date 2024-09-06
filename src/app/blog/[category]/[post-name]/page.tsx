@@ -72,6 +72,7 @@ const Post = ({params}: Props) => {
       <div className={`${nanumSquare.variable} ${styles.wrapper}`}>
         <h1>Category: {category}</h1>
         <h2>Title: {decodedTitle}</h2>
+        <br/>
         <PostMarkdown params={{decodedTitle, content: mdx!!.content}}/>
       </div>
     </div>

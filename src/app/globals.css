@@ -67,3 +67,24 @@
       @apply bg-background text-foreground;
     }
   }
+
+.code-inline {
+  color: #d6336c;
+  padding: 0.1em 0.2em;
+  background: #f8e1e7;
+  border: 1px solid #e63946;
+  border-radius: 4px;
+  font-size: 0.9em;
+}
+
+code {
+  border-radius: 4px;
+  line-height: 3;
+  font-family: 'Source Code Pro', monospace; /* 코드 블록 폰트 */
+}
+
+pre {
+  border-radius: 7px; /* 모서리 둥글게 */
+  line-height: 3;
+  overflow-x: auto; /* 코드가 길 경우 스크롤 */
+}

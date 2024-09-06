@@ -15,6 +15,27 @@
   border-bottom: 1px solid #333;
 }
 
+.contentHeader {
+  display: block;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 40px;
+  /*padding-bottom: 40px;*/
+  border-bottom: 1px solid #333;
+}
+
+.topHeader {
+  justify-content: space-between;
+  display: flex;
+  height: 240px;
+}
+
+.bottomHeader {
+  height: 20px;
+  background: darkkhaki;
+
+}
+
 .sideHeader {
 
   display: flex;

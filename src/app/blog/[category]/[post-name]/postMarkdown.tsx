@@ -1,8 +1,9 @@
 import ReactMarkdown from "react-markdown";
 import Image from "next/image";
 import {Prism as SyntaxHighlighter} from 'react-syntax-highlighter';
-import {nightOwl} from 'react-syntax-highlighter/dist/cjs/styles/prism';
+import {base16AteliersulphurpoolLight, nightOwl} from 'react-syntax-highlighter/dist/cjs/styles/prism';
 import remarkGfm from 'remark-gfm';
+import {obsidian} from "react-syntax-highlighter/dist/cjs/styles/hljs";
 
 const CodeBlock: React.FC<{ language: string; value: string }> = ({language, value}) => {
   return (
@@ -54,7 +55,7 @@ const PostMarkdown = ({params}: Props) => {
             );
           },
 
-          //@ts-ignore
+          // @ts-ignore
           code({node, inline, className, children, ...props}) {
             const match = /language-(\w+)/.exec(className || '');
             return !inline && match ? (
@@ -64,11 +65,49 @@ const PostMarkdown = ({params}: Props) => {
                 {...props}
               />
             ) : (
-              <code className={className} {...props}>
+              <code className='code-inline' {...props}>
                 {children}
               </code>
             );
           },
+
+          // code({node, inline, className, children, ...props}) {
+          //   const match = /language-(\w+)/.exec(className || '');
+          //
+          //   if (inline) {
+          //     // 인라인 코드(백틱) 스타일링
+          //     return (
+          //       <code
+          //         style={{
+          //           backgroundColor: '#e7e7e7',
+          //           color: '#d6336c',
+          //           padding: '0.2em 0.4em',
+          //           borderRadius: '3px',
+          //           border: '3px',
+          //           fontSize: '9em',
+          //         }}
+          //         {...props}
+          //       >
+          //         {children}
+          //       </code>
+          //     );
+          //   } else if (match) {
+          //     // 코드 블록 스타일링
+          //     return (
+          //       <CodeBlock
+          //         language={match[1]}
+          //         value={String(children).replace(/\n$/, '')}
+          //         {...props}
+          //       />
+          //     );
+          //   } else {
+          //     return (
+          //       <code className={className} {...props}>
+          //         {children}
+          //       </code>
+          //     );
+          //   }
+          // },
         }}
       >
         {content}
@@ -76,6 +115,4 @@ const PostMarkdown = ({params}: Props) => {
     </div>
   )
 }
-
-
 export default PostMarkdown;
