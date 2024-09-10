@@ -10,7 +10,7 @@ const formatDate = (date: Date) => {
   return `${date.getFullYear()}.${timePadding(date.getMonth() + 1)}.${timePadding(date.getDate())} ${timePadding(date.getHours())}:${timePadding(date.getMinutes())}:${timePadding(date.getSeconds())}`;
 };
 
-export const Header = () => {
+export const ContentsHeader = () => {
   const [currentTime, setCurrentTime] = useState('');
 
   useEffect(() => {
@@ -21,19 +21,16 @@ export const Header = () => {
   }, []);
 
   return (
-    <div className={styles.header}>
-      <h1 className={styles.title}>Huge.Hoo Devlog</h1>
-      <div className={styles.sideHeader}>
-        <div className={styles.sample}>
-          <Link href="/" className={styles.ctaButton}>Join the Movement</Link>
+    <div className={styles.contentHeader}>
+      <div className={styles.topHeader}>
+        <h1 className={styles.title}>Huge.Hoo Devlog</h1>
+        <div className={styles.sideHeader}>
+            <Link href="/" className={styles.ctaButton}>Join the Movement</Link>
+          {/*<div className={styles.sample}>*/}
+          {/*</div>*/}
         </div>
-        <div className={styles.sample}>
-          <br/>
-          <br/>
-          <br/>
-          <br/>
-          {currentTime}
-        </div>
+      </div>
+      <div className={styles.bottomHeader}>Title: {} Category: {}  {currentTime}
       </div>
     </div>
   );
