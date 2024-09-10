@@ -12,123 +12,81 @@ category: Go
 
 
 Go 언어의 주요 기능 중 하나인 defer 키워드를 알아보겠습니다.
-이 포스트에서는 defer의 개념과 동작 원리를 설명하고, 특히 defer의 스택 기반 실행 순서에 대해 다루겠습니다.
+이 포스트에서는 defer 의 개념과 동작 원리, go 버전별로 defer 내부 동작이 어떻게 변화했는지를 다루겠습니다.
 
-
-
-## defer ?
-
-defer 는 Go 언어에서 제공하는 키워드로, 함수의 실행을 지연시키는 데 사용됩니다.
-defer 키워드 뒤에 `지연될 함수(deferred function)`를 호출하는 방식으로 사용할 수 있습니다.
-만약 `func sample()` 내부에 `defer later()` 라는 defer 구문이 있으면,
+## defer 란 무엇일까요?
+defer 는 함수의 실행을 지연시키는 데 사용됩니다.
+defer 키워드 뒤에 `지연 될 함수(deferred function)`를 호출하는 방식으로 사용할 수 있습니다.
+함수를 지연시킨다는게 무슨 의미일까요?
+예를 들어 `func sample()` 내부에 `defer later()` 라는 defer 구문이 있으면,
 sample 함수의 반환/종료 직전까지 later 함수는 호출이 지연됩니다.
-
-
-
-주요 특징:
-
-지연 실행: defer로 지정된 함수는 즉시 실행되지 않고, 감싸고 있는 함수가 리턴되기 직전에 실행됩니다.
-리소스 관리: 주로 파일, 네트워크 연결 등의 리소스를 안전하게 해제하는 데 사용됩니다.
-에러 처리: panic 발생 시에도 defer로 지정된 함수는 실행되므로, 정리 작업을 보장할 수 있습니다.
-가독성 향상: 리소스의 획득과 해제를 코드상 가까운 위치에 배치할 수 있어 가독성이 좋아집니다.
-
 ```go
+func sample() {
+
+	logic1()
+
+	defer later() // later() 함수는 맨 마지막에 호출된다.
+
+	logic2()
+
+	return
+}
+```
+
+#### 왜 함수를 지연시킬까요?
+later() 이란 함수를 왜 굳이 defer 로 지연시켜야 할까요?
+그냥 sample() 함수 내부에서 리턴 직전에 호출하도록 선언부를 뒤로 옮기면 되지 않을까 라는 의문을 가질 수도 있습니다.
+함수를 지연시켜서 (정확히 표현하면 외부 함수를 종료/리턴하기 직전에) 호출해야하는 경우가 무엇이 있을지 생각해봅시다.
+
+함수 내부에서 여러 자원을 사용하면 이 자원을 적절하게 해제해야 하는 경우가 많습니다.
+예를 들어 파일을 열고 작업을 수행한 뒤 파일을 닫거나, 데이터베이스 연결을 열고 작업을 완료한 후 연결을 종료해야 합니다.
+이런 자원 해제 작업은 흔히 함수의 끝에서 수행되지만, 작업 도중에 리턴이 발생하거나 에러가 발생하는 경우 이를 쉽게 놓칠 수 있습니다.
+
+defer 를 사용하면 함수가 종료될 때 `자원이 자동 해제` 되도록 할 수 있습니다.
+이는 코드가 더 간결해지는 효과와, 리턴이 함수의 `여러 곳`에서 발생할 수 있는 복잡한 함수에서 진가를 발휘합니다.
+자원 해제를 위해 일일이 코드의 끝에 선언할 필요 없이 자원을 사용/오픈하는 바로 다음 줄에 defer 를 사용해 안전하게 처리할 수 있습니다.
+결과적으로 코드의 `논리적인 흐름`을 명확히 유지하면서 자원을 적절하게 관리할 수 있습니다.
+
+``` go
 func readFile(filename string) error {
     file, err := os.Open(filename)
     if err != nil {
         return err
     }
-    defer file.Close()  // readFile() 종료 시 파일을 닫음
+    // defer 를 사용하여 함수가 종료될 때 파일을 닫음
+    defer file.Close()
 
-    // 파일 읽기 작업...
+    // 파일 읽기 작업 수행 (예시를 위해 간단히 파일명 출력)
+    fmt.Println("Reading file:", filename)
+
+    // 실제 파일 읽기 작업은 생략
+    _, err = ioutil.ReadAll(file)
+    if err != nil {
+        return err
+    }
+
     return nil
 }
 ```
-
-이 예제에서 defer file.Close()는 readFile 함수가 종료되기 직전에 실행되어 파일을 안전하게 닫습니다.
-readFile 함수가 실행되는 동안은 file.Close() 구문을 지연(defer) 하고,
-readFile() 이 종료/반환 되기 직전이 돼서야 file.Close() 를 호출합니다.
-(함수가 종료될 때 파일을 닫지 않으면 리소스 누수, 열린 파일에 대한 잠금 유지 등 문제가 발생할 수 있습니다.)
+위 코드에서 defer 를 사용하지 않으면 리턴 문 마다 `file.Close()` 를 호출해야하지만,
+defer 로 file.Close() 를 `지연호출` 시키면 한번의 선언만으로 모든 리턴문을 대응할 수 있습니다.
+만약 리턴문이 코드 내부에 여럿 생긴다면 더욱 유용할 수 있습니다.
+리턴 뿐만 아니라 `panic` 발생 시에도 defer 로 지정된 함수는 지연호출 되므로 예외상황에서 항상 정리 작업을 보장할 수 있습니다.
 
 `Java` 에서 스트림을 읽거나 파일 리소스를 열면 반드시 `finally` 블럭에서 리소스를 닫아주는 것 처럼
 마지막에 Clean-up 작업을 위해 사용된다고 볼 수 있습니다.
 
-## defer 를 써야하는 이유
-예시 코드를 하나 더 살펴보겠습니다.
-다른 분의 블로그에서 발췌한 코드인데 너무 적절한 예시라 보여드리고 싶었습니다.
-
-##### ☑️ defer 를 사용하지 않을 때
-아래 코드는 함수의 모든 return 문이 있는 곳 마다 매번 f.Close() 를 선언해야 합니다.
-함수가 반환되는 지점에 일일이 f.Close() 를 작성하는 건 번거러울 뿐더러 누락시 휴먼에러 발생 가능성도 있습니다.
-
-```go
-func Contents(filename string) (string, error) {
-	f, err := os.Open(filename) // 자원 할당
-	if err != nil {
-		return "", err
-	}
-	var result []byte
-	buf := make([]byte, 100)
-	for {
-		n, err := f.Read(buf[0:])
-		result = append(result, buf[0:n]...)
-		if err != nil {
-			if err == io.EOF {
-				break
-			}
-			f.Close() // 지원 해제
-			return "", err
-		}
-	}
-	f.Close() // 지원 해제
-	return string(result), nil
-}
-
-
-
-```
-[출처: [Go] defer 문의 원리 및 활용](https://bugoverdose.github.io/development/go-defer-basics/)
-
-
-##### ✅ defer 를 사용할 때
-반면 `defer f.Close()` 를 미리 호출하는 경우엔
-return 문 마다 일일이 f.Close() 를 선언해둘 필요가 없습니다.
-```go
-func Contents(filename string) (string, error) {
-	f, err := os.Open(filename) // 자원 할당
-	if err != nil {
-		return "", err
-	}
-	defer f.Close() // 함수 종료 시점에 자원 해제하도록 '지연 호출 선언'
-	var result []byte
-	buf := make([]byte, 100)
-	for {
-		n, err := f.Read(buf[0:])
-		result = append(result, buf[0:n]...)
-		if err != nil {
-			if err == io.EOF {
-				break
-			}
-			return "", err // defer 에 의해 f.Close() 자동 호출
-		}
-	}
-	return string(result), nil // defer 에 의해 f.Close() 자동 호출
-}
-```
-
-
 여기까지 defer 의 기본적인 개념을 알아봤습니다.
-그럼 만약 하나의 함수 내에 defer 가 여러개라면 어떤 순서로 defer 가 실행될까요?
+다음 챕터에선 defer 의 내부 동작원리에 대해 알아보겠습니다. 그전에 defer 가 여러개 선언된 함수라면 어떤 순서로 호출될까요?
+하나의 함수 내에 defer 가 여러개라면 어떤 순서로 defer 가 실행될까요?
 
 
 
-## defer 대상 함수는 스택 구조로 관리: FILO (First In Last Out)
-하나의 함수 내에서 여러개의 defer 함수가 존재하는 경우를 생각해봅시다.
+## defer 는 스택이다!
 
+하나의 함수 내에서 여러개의 defer 함수가 존재하면 어떻게 될까요?
 defer 키워드를 만나면 defer 문에 대한 평가가 즉시 일어나고, defer 문에서 지연시키려는 함수를 스택에 추가합니다.
-
 해당 스택에서 지연된 함수들은 선입후출, 즉 스택구조로 관리되다가 한번에 순차적으로 호출됩니다
-
 
 ``` go
 func deferDemo() {
@@ -146,18 +104,16 @@ func deferDemo() {
 > First
 ```
 
-주요 포인트:
-
-실행 순서: 여러 개의 defer 문이 있을 경우, 가장 마지막에 defer된 함수가 가장 먼저 실행됩니다.
-스택 구조: defer 문을 만날 때마다 해당 함수 호출이 스택에 추가됩니다.
-역순 실행: 함수가 종료될 때, 스택의 top부터 순서대로 defer된 함수들이 실행됩니다.
+- 실행 순서: 여러 개의 defer 문이 있을 경우, 가장 마지막에 defer된 함수가 가장 먼저 실행됩니다.
+- 스택 구조: defer 문을 만날 때마다 해당 함수 호출이 스택에 추가됩니다.
+- 역순 실행: 함수가 종료될 때, 스택의 top부터 순서대로 defer된 함수들이 실행됩니다.
 
 
 
 
 
 
-defer 함수의 인자 케이스 탐구
+### defer 함수의 인자 케이스 탐구
 defer를 사용할 때 함수의 인자가 어떻게 평가되고 실행되는지 이해하는 것은 매우 중요합니다. 다양한 시나리오를 통해 defer의 동작을 자세히 살펴보겠습니다.
 
 ``` go
@@ -283,13 +239,6 @@ func controlledLoop(ctx context.Context) {
     }
 }
 ```
-
-
-### defer 에서 발생한 에러를 처리하라
-대부분의 경우 defer 함수에서 리턴된 에러는 무시하지 않는 것이 좋으며,
-에러를 직접 처리할지, 호출자에게 전달할지는 문맥에 따라 적절히 판단해야 합니다.
-에러를 무실하려면 빈 식별자를 활용하는 것을 추천합니다.
-
 
 ### 심화 예시
 
