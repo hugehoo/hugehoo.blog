@@ -1,0 +1,144 @@
+---
+title: "sigterm signal 못받은 이유"
+date: 2024-07-14
+desc: FE 개발자라면 티스토리 말고 개인 블로그 하나쯤은,,
+thumbnail: /team-member-1.jpeg
+category: Docker
+---
+
+
+### 배경
+- Go 애플리케이션을 종료할 때 특정 로직을 수행하고자 했습니다.
+
+- 사용자가 수동으로 (로컬) 서버를 종료하면 syscall.SIGINT 값이 channel 에 할당되면서 goroutine 내부가 실행되어
+로직 수행 후 애플리케이션이 종료(`os.Exit(1)`) 됩니다.
+- 실제로 로컬에서 서버를 실행하고 `ctrl + C` 명령어로 서버를 종료하면 goroutine 내부 로직이 잘 실행됐습니다.
+``` go
+func (s *Server) StartServer() error {
+
+	s.setServerInfo()
+	channel := make(chan os.Signal, 1)
+	signal.Notify(channel, syscall.SIGINT) // (1) 단순 종료 시그널
+
+	go func() {
+		<-channel
+      // ... 로직 수행
+		os.Exit(1)
+	}()
+	return s.engine.Listen(s.port)
+}
+```
+
+### 도커 컨테이너화 후에도 잘 동작할까?
+- 애플리케이션을 컨테이너로 말아올려 실행하더라도 위의 로직이 잘 동작할까요? 그렇지 않습니다. 실행중인 컨테이너를 `stop` 하더라도 위의 goroutine 은 수행되지 않습니다.
+
+- 이는 도커 컨테이너에서 신호 처리 방식이 로컬 환경과 다르기 때문인데,
+도커에서는 컨테이너를 stop 할 때, 기본적으로 `SIGTERM` 신호를 보냅니다. (그 후에 일정 시간 동안 컨테이너가 종료되지 않으면 `SIGKILL` 신호를 보냅니다.)
+
+- 기존 코드에서는 `signal.Notify(channel, syscall.SIGINT)`를 사용하고 있어 어플리케이션 종료 사인으로 SIGINT 신호만을 처리하고 있습니다.
+즉 `docker stop <container id>` 명령 사인을 처리하지 못하기 때문에, 현재 코드에서는 docker container 가 내려가도 goroutine 로직이 정상적으로 수행되지 않습니다.
+
+- 도커 컨테이너가 가 stop 될 때도 로직을 수행하기 위해선 signal.Notify() 코드 내부에 도커 컨테이너가 stop 될 때의 시그널을 인자로 추가하면 됩니다. 개선된 코드는 아래와 같습니다.
+
+
+
+``` go
+func (s *Server) StartServer() error {
+
+	s.setServerInfo()
+	channel := make(chan os.Signal, 1)
+	signal.Notify(channel, syscall.SIGINT, syscall.SIGTERM을) // 단순 종료 시그널 + Docker container stop 시그널
+
+	go func() {
+		<-channel
+      // 로직 수행
+		os.Exit(1)
+	}()
+	return s.engine.Listen(s.port)
+}
+```
+
+- 이제 문제가 모두 해결됐을까요?  이론상으로는 그렇습니다.  하지만 제가 실행했을 땐 여전히 문제가 풀리지 않더라구요. (진리의 제 컴에선 안돼요 ㅠ)
+- GPT 의 도움을 받았습니다.
+![img1.png](/img1.png)
+
+- Docker PID 가 1이 아닐 수 있나? 라는 생각이 들었지만, 확실치 않았기에 실행 중인 컨테이너의 PID 를 확인했습니다.
+
+``` bash
+$ docker top <container id> # container PID 확인
+```
+
+- 아니나 다를까 PID 는 1이 아니었습니다. 🥲🥲
+
+### 컨테이너의 PID 1이 중요한 이유:
+- PID 1 프로세스는 리눅스에서 중요한 역할을 합니다. 리눅스 시스템에서 PID 1은 `최상위 프로세스`이며 시스템에서 발생하는 신호를 처리하고 자식 프로세스가 종료될 때 좀비 프로세스를 청소하는 역할을 합니다.
+
+- 컨테이너 환경에서도 `PID 1 프로세스는 도커가 전달하는 신호(SIGTERM, SIGINT 등)를 처리하고, 컨테이너 종료 시 제대로 된 정리 작업을 수행합니다.
+- 따라서 애플리케이션이 PID 1로 실행되지 않으면 신호를 제대로 수신할 수 없기 때문에 예상한대로 로직이 실행되지 않았던 것이었습니다.
+
+### 컨테이너의 PID 가 1이 아니었던 이유
+- 저는 컨테이너를 도커 컴포즈로 실행하고 있었습니다.
+
+- 컴포즈로 실행하는건 문제가 안되지만 컨테이너의 PID 를 1로 실행하기 위해선 컴포즈 파일 내부의 명령어 수정이 필요했습니다. 기존 도커 컴포즈 파일은 아래와 같습니다.
+
+``` yml
+version: '3'
+
+services:
+  chat_backend_1:
+    build:
+      context: ./chat_backend
+      dockerfile: Dockerfile
+    ports:
+      - "1011:1010"
+    volumes:
+      - ./chat_backend:/go/src/app
+    working_dir: /go/src/app
+    environment:
+      - GO111MODULE=on
+    command: sh -c "go build -o main . && ./main" # << 변경이 필요한 지점
+
+  # ... 이하 생략
+
+```
+
+- 컨테이너가 실행되는 프로세스가 PID 1이 되도록 하려면, command 섹션에서 쉘 스크립트나 명령어를 실행할 때 `exec` 명령을 사용해야 합니다.
+
+- `exec`는 현재 쉘 프로세스를 대체하기 때문에, 실행되는 애플리케이션의 PID 를 1로 설정할 수 있습니다.
+
+``` yml
+version: '3'
+
+services:
+  chat_backend_1:
+    build:
+      context: ./chat_backend
+      dockerfile: Dockerfile
+    ports:
+      - "1011:1010"
+    volumes:
+      - ./chat_backend:/go/src/app
+    working_dir: /go/src/app
+    environment:
+      - GO111MODULE=on
+    command: sh -c "go build -o main . && exec ./main" # << exec 추가
+
+  # ... 이하 생략
+
+```
+
+- 변경된 컴포즈 파일을 빌드하여 도커 컴포즈를 실행했습니다. 결과적으로 PID 가 1로 잘 출력되는 걸 확인할 수 있었고,
+
+ PID 1 로 컨테이너를 실행한 후에는 위 goroutine 코드가 정상적으로 동작하는걸 확인할 수 있었습니다.
+
+
+### 결론:
+
+- Go 애플리케이션을 도커 컨테이너로 운영할 때 발생할 수 있는 예상치 못한 문제와 해결 과정에 대해 작성했습니다.
+
+  - `신호 처리의 중요성`: UNIX 계열 운영체제에서 사용되는 신호 SIGINT 와 SIGTERM 의 차이를 이해하고, 컨테이너 환경에서 처리하기 위해 적절한 명령어를 숙지해야 하는 점을 배웠습니다. 특히 도커 컨테이너에서는 SIGTERM 신호 처리가 필수!
+
+  - `PID 1의 역할`: 컨테이너 내에서 애플리케이션이 PID 1로 실행되어야 신호를 제대로 받아 처리할 수 있습니다.
+
+  - `도커 컴포즈 설정`: exec 명령어를 사용하여 애플리케이션을 PID 1로 실행해야 하는 점을 배웠습니다. 컨테이너 운영에 있어 중요한 팁이라 생각합니다.
+
