@@ -21,7 +21,8 @@ const CardSection = ({posts}: { posts: CardInterface[] }) => {
             backContent={
               <Link href={`blog/${post.category}/${decodeURIComponent(post.title)}`}>
                 <div>
-                  <h4>{post.title}</h4>
+                  <h4>Read more...</h4>
+                  {/*<h4>{post.title}</h4>*/}
                 </div>
               </Link>
             }

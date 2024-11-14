@@ -21,7 +21,6 @@ const MainIntro = () => {
               backContent={
                 <div>
                   <h4>{name}</h4>
-                  <p>{name}</p>
                 </div>
               }
               width={400}

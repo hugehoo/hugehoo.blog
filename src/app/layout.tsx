@@ -9,7 +9,7 @@ import {Header} from "@/layouts/Header";
 import {Bottom} from "@/layouts/Bottom";
 import styles from "@/app/blog/TeamPage.module.css";
 import {useSelectedLayoutSegments} from "next/navigation";
-import {Header2} from "@/layouts/Header2";
+import {ContentsHeader} from "@/layouts/ContentsHeader";
 
 const fogsta = localFont({
   src: '../../public/fonts/Fogsta Italic.woff2',
@@ -32,7 +32,7 @@ export default function RootLayout({children}: Readonly<{ children: React.ReactN
 
     <div className={styles.container}>
       <main className={styles.main}>
-        {segment.length == 0 ? <Header/> : <Header2/>}
+        {segment.length == 0 ? <Header/> : <ContentsHeader/>}
         {children}
         <Bottom/>
       </main>

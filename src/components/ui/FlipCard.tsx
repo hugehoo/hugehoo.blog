@@ -27,10 +27,13 @@ const FlipCard: React.FC<FlipCardProps> = ({frontImage, altText, backContent, wi
     >
       <div className={styles.flipCardInner}>
         <div className={styles.flipCardFront}>
+          {/*<div style={{height: '300px', background: 'red'}}>*/}
+          {/*  <h1>hahah</h1>*/}
+          {/*</div>*/}
           <Image src={frontImage}
                  alt={altText}
                  fill
-                 sizes={"400px"}/>
+          />
         </div>
         <div className={styles.flipCardBack}>
           {backContent}

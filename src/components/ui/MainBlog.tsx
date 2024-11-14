@@ -42,8 +42,6 @@ const getPosts = (): CardInterface[] => {
 
 const MainBlog = () => {
   const posts = getPosts();
-  // console.log("포스트")
-  // console.log(posts[0])
   return (
     <section className={styles.teamSection}>
       <div className={styles.underlineTitle}>
