@@ -14,6 +14,11 @@ const nanumSquare = localFont({
       weight: '500',
       style: 'normal',
     },
+    {
+      path: '../../../../../public/fonts/NanumSquareNeoTTF-bRg.woff',
+      weight: '700',
+      style: 'bold',
+    },
   ],
   variable: '--font-nanum-square',
 })
@@ -70,9 +75,8 @@ const Post = ({params}: Props) => {
   return (
     <div className={styles.textContainer}>
       <div className={`${nanumSquare.variable} ${styles.wrapper}`}>
-        <h1>Category: {category}</h1>
-        <h2>Title: {decodedTitle}</h2>
-        <br/>
+        {/*<h1>Category: {category}</h1>*/}
+        {/*<h2>Title: {decodedTitle}</h2>*/}
         <PostMarkdown params={{decodedTitle, content: mdx!!.content}}/>
       </div>
     </div>
