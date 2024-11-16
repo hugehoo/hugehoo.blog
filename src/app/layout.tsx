@@ -28,11 +28,9 @@ export default function RootLayout({children}: Readonly<{ children: React.ReactN
       <link rel="icon" href="/src/app/favicon.ico"/>
     </Head>
     <body>
-    {/*<Blog/>*/}
-
     <div className={styles.container}>
       <main className={styles.main}>
-        {segment.length == 0 ? <Header/> : <ContentsHeader/>}
+        {segment.length == 0 ? <Header/> : <ContentsHeader segment={segment}/>}
         {children}
         <Bottom/>
       </main>

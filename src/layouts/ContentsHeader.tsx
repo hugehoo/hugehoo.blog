@@ -10,9 +10,12 @@ const formatDate = (date: Date) => {
   return `${date.getFullYear()}.${timePadding(date.getMonth() + 1)}.${timePadding(date.getDate())} ${timePadding(date.getHours())}:${timePadding(date.getMinutes())}:${timePadding(date.getSeconds())}`;
 };
 
-export const ContentsHeader = () => {
-  const [currentTime, setCurrentTime] = useState('');
+interface ContentsHeaderProps {
+  segment: string[];
+}
 
+export const ContentsHeader = ({segment}: ContentsHeaderProps) => {
+  const [currentTime, setCurrentTime] = useState('');
   useEffect(() => {
     const updateTime = () => setCurrentTime(formatDate(new Date()));
     updateTime();
@@ -20,18 +23,19 @@ export const ContentsHeader = () => {
     return () => clearInterval(timerId);
   }, []);
 
+  const category = segment[1] ? decodeURIComponent(segment[1]) : 'General';
+  const title = segment[2] ? decodeURIComponent(segment[2]) : 'Default Title';
   return (
     <div className={styles.contentHeader}>
       <div className={styles.topHeader}>
         <h1 className={styles.title}>Huge.Hoo Devlog</h1>
         <div className={styles.sideHeader}>
-            <Link href="/" className={styles.ctaButton}>Join the Movement</Link>
-          {/*<div className={styles.sample}>*/}
-          {/*</div>*/}
+          <Link href="/" className={styles.ctaButton}>Join the Movement</Link>
         </div>
       </div>
-      <div className={styles.bottomHeader}>Title: {} Category: {}  {currentTime}
-      </div>
+      <div className={styles.bottomHeader}>Title: {title}</div>
+      <div className={styles.bottomHeader}>Category: {category}</div>
+      {/*<div className={styles.bottomHeader}>{currentTime}</div>*/}
     </div>
   );
 };
