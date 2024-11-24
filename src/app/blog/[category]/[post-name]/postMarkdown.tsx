@@ -35,7 +35,7 @@ const PostMarkdown = ({params}: Props) => {
           h3: ({node, ...props}) =>
             <h3 style={{color: '#111', fontSize: '1.6em', fontWeight: '900', margin: '2em 0 0.5em 0'}} {...props} />,
           h4: ({node, ...props}) =>
-            <h4 style={{color: '#111', fontSize: '1.4em', margin: '2em 0 1em 0'}} {...props} />,
+            <h4 style={{color: '#111', fontSize: '1.4em', margin: '0 0 1em 0'}} {...props} />,
           h5: ({node, ...props}) =>
             <h5 style={{color: '#111', fontSize: '1.2em'}} {...props} />,
           h6: ({node, ...props}) =>
