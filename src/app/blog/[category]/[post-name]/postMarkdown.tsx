@@ -33,7 +33,7 @@ const PostMarkdown = ({params}: Props) => {
           h2: ({node, ...props}) =>
             <h2 style={{color: '#111', fontSize: '1.8em', fontWeight: '900', margin: '1.5em 0 0.3em 0'}} {...props} />,
           h3: ({node, ...props}) =>
-            <h3 style={{color: '#111', fontSize: '1.6em', margin: '2em 0 0.5em 0'}} {...props} />,
+            <h3 style={{color: '#111', fontSize: '1.6em', fontWeight: '900', margin: '2em 0 0.5em 0'}} {...props} />,
           h4: ({node, ...props}) =>
             <h4 style={{color: '#111', fontSize: '1.4em', margin: '2em 0 1em 0'}} {...props} />,
           h5: ({node, ...props}) =>
@@ -49,7 +49,9 @@ const PostMarkdown = ({params}: Props) => {
           strong: ({node, ...props}) =>
             <strong style={{color: '#111', background: '#fff3b9'}} {...props} />,
           p: ({node, ...props}) =>
-            <p style={{marginBottom: '1em'}} {...props} />,
+            <p style={{marginBottom: '1.5em',
+              lineHeight: '1.6em'
+            }} {...props} />,
           a: ({href, ...props}) =>
             <a href={href} style={{color: '#3498db'}} {...props} />,
           br: ({node, ...props}) =>
