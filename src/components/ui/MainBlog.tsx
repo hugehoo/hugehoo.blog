@@ -4,6 +4,7 @@ import matter from 'gray-matter';
 import CardSection from "@/components/ui/CardSection";
 import styles from "@/app/blog/TeamPage.module.css";
 import {sync} from 'glob';
+import dayjs from "dayjs";
 
 
 export interface CardInterface {
@@ -11,7 +12,7 @@ export interface CardInterface {
   thumbnail: string;
   category: string;
   content: string;
-
+  date: Date;
 }
 
 const getPosts = (): CardInterface[] => {
@@ -19,24 +20,19 @@ const getPosts = (): CardInterface[] => {
   const folder = '**';
   const postPaths: string[] = sync(`${POSTS_PATH}/${folder}/**/*.mdx`);
 
-  //
-
-  // const file = fs.readFileSync(postPath, 'utf8');
-  // const { data, content } = matter(file);
-  // const grayMatter = data as PostMatter;
-  // const readingMinutes = Math.ceil(readingTime(content).minutes);
-  // const dateString = dayjs(grayMatter.date).locale('ko').format('YYYY년 MM월 DD일');
-  //
   return postPaths.map(post => {
     const file = fs.readFileSync(post, 'utf8');
     const {data, content} = matter(file);
+
     return {
       title: data.title,
+      date: data.date,
       thumbnail: data.thumbnail,
       category: data.category,
       content: content
     }
-  });
+  })
+    .sort((a, b) => dayjs(b.date).valueOf() - dayjs(a.date).valueOf());
 }
 
 
