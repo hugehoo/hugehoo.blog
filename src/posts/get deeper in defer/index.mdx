@@ -13,17 +13,20 @@ category: Go
 
 ## 목차
 
-- defer 란 무엇인가?
-- stack 으로 관리되는 defer
-- defer 대상의 평가 시점
-- defer 대상의 동작 원리
+- defer 란 무엇일까요?
+- defer 는 LIFO(last in first out) 로 동작한다
+- for 문에서 defer 를 사용하면 안되는 이유
+  - 리소스 누수 위험
+  - for 문의 defer 사용 시 대안
+- 심화예시
+  - panic 발생 시 defer 의 동작
 
 ## 예상 독자
 Go 언어의 주요 기능 중 하나인 defer 키워드를 알아보겠습니다.
 이 포스트에서는 defer 의 개념과 동작 원리, go 버전별로 defer 내부 동작이 어떻게 변화하는지 다룹니다.
 
 
-## defer 란 무엇일까요?
+### defer 란 무엇일까요?
 defer 는 함수의 실행을 지연시키는 데 사용됩니다.
 defer 키워드 뒤에 `지연 될 함수(deferred function)`를 호출하는 방식으로 사용할 수 있습니다.
 함수를 지연시킨다는게 무슨 의미일까요?
@@ -40,21 +43,25 @@ func sample() {
 
 	return
 }
+
+// logic1() 실행
+// logic2() 실행
+// later() 실행
 ```
 
 #### 왜 함수를 지연시킬까요?
-later() 이란 함수를 왜 굳이 defer 로 지연시켜야 할까요?
-그냥 sample() 함수 내부에서 리턴 직전에 호출하도록 선언부를 뒤로 옮기면 되지 않을까 라는 의문을 가질 수도 있습니다.
+`later()` 함수를 왜 굳이 defer 로 지연시켜야 할까요?
+`sample()` 함수 리턴 직전에 호출하도록 선언 자체를 뒤로 옮기면 되지 않을까? 의문을 가질 수도 있습니다.
 함수를 지연시켜서 (정확히 표현하면 외부 함수를 종료/리턴하기 직전에) 호출해야하는 경우가 무엇이 있을지 생각해봅시다.
 
-함수 내부에서 여러 자원을 사용하면 이 자원을 적절하게 해제해야 하는 경우가 많습니다.
-예를 들어 파일을 열고 작업을 수행한 뒤 파일을 닫거나, 데이터베이스 연결을 열고 작업을 완료한 후 연결을 종료해야 합니다.
-이런 자원 해제 작업은 흔히 함수의 끝에서 수행되지만, 작업 도중에 리턴이 발생하거나 에러가 발생하는 경우 이를 쉽게 놓칠 수 있습니다.
+함수 내부에서 resource 를 사용하면 이를 적절히 해제해야 memory leak 을 방지할 수 있습니다.
+예를 들어 파일을 열어 작업 수행 후 닫아 주어야 하거나, DB Connection 맺고 작업 완료 시엔 Connection 을 종료해야 합니다.
+이러한 resource 해제 작업은 흔히 함수 마지막에 수행되지만, 함수 중간에 리턴이 발생하거나 예외가 발생하는 경우 자원 해제 과정이 누락될 수도 있습니다.
 
-defer 를 사용하면 함수가 종료될 때 `자원이 자동 해제` 되도록 할 수 있습니다.
-이는 코드가 더 간결해지는 효과와, 리턴이 함수의 `여러 곳`에서 발생할 수 있는 복잡한 함수에서 진가를 발휘합니다.
-자원 해제를 위해 일일이 코드의 끝에 선언할 필요 없이 자원을 사용/오픈하는 바로 다음 줄에 defer 를 사용해 안전하게 처리할 수 있습니다.
-결과적으로 코드의 `논리적인 흐름`을 명확히 유지하면서 자원을 적절하게 관리할 수 있습니다.
+이 때 `defer` 를 사용하여 **자원 해제**를 선언하면, 함수가 종료되거나 도중에 예외가 발생하더라도 자동으로 자원 해제를 강제할 수 있습니다.
+이는 코드가 간결해지는 효과와, 함수의 여러개의 `얼리 리턴`이 존재하는 복잡한 함수에서 진가를 발휘합니다.
+매번 리턴문 직전에 자원 해제를 선언할 필요 없이 resource 를 사용/오픈하는 바로 다음 라인에 defer 를 선언하여 안전하게 자원 해제를 수행할 수 있습니다.
+즉 `defer` 를 사용하면 코드의 `논리적인 흐름`을 명확히 유지하면서 적절히 자원을 관리할 수 있습니다.
 
 ``` go
 func readFile(filename string) error {
@@ -65,10 +72,6 @@ func readFile(filename string) error {
     // defer 를 사용하여 함수가 종료될 때 파일을 닫음
     defer file.Close()
 
-    // 파일 읽기 작업 수행 (예시를 위해 간단히 파일명 출력)
-    fmt.Println("Reading file:", filename)
-
-    // 실제 파일 읽기 작업은 생략
     _, err = ioutil.ReadAll(file)
     if err != nil {
         return err
@@ -78,24 +81,23 @@ func readFile(filename string) error {
 }
 ```
 위 코드에서 defer 를 사용하지 않으면 리턴 문 마다 `file.Close()` 를 호출해야하지만,
-defer 로 file.Close() 를 `지연호출` 시키면 한번의 선언만으로 모든 리턴문을 대응할 수 있습니다.
-만약 리턴문이 코드 내부에 여럿 생긴다면 더욱 유용할 수 있습니다.
-리턴 뿐만 아니라 `panic` 발생 시에도 defer 로 지정된 함수는 지연호출 되므로 예외상황에서 항상 정리 작업을 보장할 수 있습니다.
+defer 로 file.Close() 를 `지연호출` 시키면 한번의 선언만으로 모든 리턴 문을 대응할 수 있습니다.
+코드가 복잡해져서 리턴 문이 여러개 생긴다면 더욱 유용할 수 있습니다.
+리턴 뿐만 아니라 `panic` 발생 시에도 defer 로 지정된 함수는 **반드시 지연호출** 되므로 예외 상황에서 항상 정리 작업을 보장할 수 있습니다.
 
-`Java` 에서 스트림을 읽거나 파일 리소스를 열면 반드시 `finally` 블럭에서 리소스를 닫아주는 것 처럼
+> `Java` 에서 스트림을 읽거나 파일 리소스를 열면 반드시 `finally` 블럭에서 리소스를 닫아주는 것 처럼
 마지막에 Clean-up 작업을 위해 사용된다고 볼 수 있습니다.
 
-여기까지 defer 의 기본적인 개념을 알아봤습니다.
-다음 챕터에선 defer 의 내부 동작원리에 대해 알아보겠습니다. 그전에 defer 가 여러개 선언된 함수라면 어떤 순서로 호출될까요?
-하나의 함수 내에 defer 가 여러개라면 어떤 순서로 defer 가 실행될까요?
+[//]: # (여기까지 defer 의 기본적인 개념을 알아봤습니다.)
+[//]: # (다음 챕터에선 defer 의 내부 동작원리에 대해 알아보겠습니다. 그전에 defer 가 여러개 선언된 함수라면 어떤 순서로 호출될까요?)
+[//]: # (하나의 함수 내에 defer 가 여러개라면 어떤 순서로 defer 가 실행될까요?)
 
 
-
-## defer 는 스택이다!
+### defer 는 LIFO(last in first out) 로 동작한다
 
 하나의 함수 내에서 여러개의 defer 함수가 존재하면 어떻게 될까요?
-defer 키워드를 만나면 defer 문에 대한 평가가 즉시 일어나고, defer 문에서 지연시키려는 함수를 스택에 추가합니다.
-해당 스택에서 지연된 함수들은 선입후출, 즉 스택구조로 관리되다가 한번에 순차적으로 호출됩니다
+defer 키워드를 만나면 defer 문에 대한 평가가 즉시 일어나고 지연 대상 함수를 차례로 스택에 append 합니다.
+해당 스택에서 지연된 함수들은 선입후출, 즉 스택구조로 관리되어 외부 함수가 종료되기 직전에 순차적으로 호출됩니다
 
 ``` go
 func deferDemo() {
@@ -113,44 +115,9 @@ func deferDemo() {
 > First
 ```
 
-- 실행 순서: 여러 개의 defer 문이 있을 경우, 가장 마지막에 defer된 함수가 가장 먼저 실행됩니다.
-- 스택 구조: defer 문을 만날 때마다 해당 함수 호출이 스택에 추가됩니다.
-- 역순 실행: 함수가 종료될 때, 스택의 top부터 순서대로 defer된 함수들이 실행됩니다.
-
-
-
-
-
-
-### defer 함수의 인자 케이스 탐구
-defer를 사용할 때 함수의 인자가 어떻게 평가되고 실행되는지 이해하는 것은 매우 중요합니다. 다양한 시나리오를 통해 defer의 동작을 자세히 살펴보겠습니다.
-
-``` go
-func basicDefer() {
-	for i := 0; i < 3; i++ {
-		defer fmt.Printf("%d \n", i)
-	}
-	fmt.Println("기본 defer 실행 완료")
-}
-
-func deferWithClosure() {
-	for i := 0; i < 3; i++ {
-		defer func() {
-			fmt.Printf("%d \n", i)
-		}()
-	}
-	fmt.Println("클로저를 이용한 defer 실행 완료")
-}
-
-func deferWithArgument() {
-	for i := 0; i < 3; i++ {
-		defer func(n int) {
-			fmt.Printf("%d \n", n)
-		}(i)
-	}
-	fmt.Println("인자를 전달하는 defer 실행 완료")
-}
-```
+- 스택 구조: defer 문을 만날 때마다 해당 함수를 스택에 추가
+- 역순 실행: 외부 함수가 종료될 때 스택의 top 부터 순서대로 실행
+- 실행 순서: 여러 개의 defer 문이 있을 경우, 가장 마지막에 defer 된 함수가 가장 먼저 실행
 
 ### for 문에서 defer 를 사용하면 안되는 이유
 for 문 내부에서 defer 사용은 일반적으로 권장되지 않으며 IDE 에서도 warning 을 표시합니다.
@@ -158,7 +125,7 @@ for 문 내부에서 defer 사용은 일반적으로 권장되지 않으며 IDE 
 #### 리소스 누수 위험
 defer 는 함수가 종료될 때 까지 실행을 지연시키는데,
 for 문 내부에서 defer 사용 시 루프마다 새로운 defer 호출이 스택에 쌓이게 되고 함수가 종료될 때 까지 누적됩니다.
-아래 예시 코드에서 루프가 반복될 때 마다 defer file.Close()가 스택에 추가되면 이는 심각한 메모리 문제를 일으킬 수 있습니다.
+아래 예시처럼 루프가 반복될 때 마다 `defer file.Close()`가 스택에 추가되면 심각한 메모리 문제를 일으킬 수 있습니다.
 
 ``` go
 func riskyFunction() {
@@ -168,7 +135,7 @@ func riskyFunction() {
             log.Println(err)
             continue
         }
-        defer file.Close() // 위험: 각 반복마다 defer가 쌓임
+        defer file.Close() // 위험: 루프마다 defer가 쌓임
 
         // 파일 처리 로직...
     }
@@ -177,26 +144,30 @@ func riskyFunction() {
 
 defer 가 누적되면 어떤 메모리 문제가 발생할 수 있을까요? 이를 파악하기 위해선 우선 defer 의 내부 동작을 살펴봐야 합니다.
 
-##### 1. defer의 내부 동작:
+##### 1. defer 의 내부 동작:
 Go 런타임은 defer 문을 만날 때마다 defer 레코드라는 작은 데이터 구조를 생성합니다.
-이 레코드는 지연된 함수 호출에 대한 정보(함수 포인터, 인자 등)를 포함합니다.
-이 레코드들은 함수의 스택 프레임에 연결된 리스트 형태로 관리됩니다.
+레코드는 지연 호출되는 함수의 정보(함수 포인터, 인자 등)를 포함하며
+이를 스택 프레임에 연결된 리스트 형태로 관리됩니다.
 
 ##### 2. 메모리 사용량 증가:
-각 defer 레코드는 작지만, 루프가 수백만 번 반복된다면 메모리 사용량이 급격히 증가할 수 있습니다.
-예를 들어, 각 defer 레코드가 32바이트를 사용한다고 가정하면:
+앞서 Go 런타임은 defer 레코드를 생성하여 지연 호출 함수를 관리한다고 했습니다.
+defer 레코드 하나의 크기는 작을 수 있지만, 루프 내에서 지속적으로 반복 생성되면 이 역시 메모리 사용량을 증가 시키는 요인이 될 수 있습니다.
 
-1,000,000회 반복 시 약 32MB의 추가 메모리 사용
-10,000,000회 반복 시 약 320MB의 추가 메모리 사용
+예를 들어 각 defer 레코드가 `32 byte` 사용 시 :
+
+`1,000,000회` 반복 시 약 32MB의 추가 메모리 사용 <br/>
+`10,000,000회` 반복 시 약 320MB의 추가 메모리 사용
 
 ##### 3. 스택 오버플로우 위험:
 defer 레코드가 과도하게 쌓이면 스택 오버플로우를 일으킬 수 있습니다.
-Go의 기본 고루틴 스택 크기는 2KB에서 시작하여 최대 1GB까지 확장될 수 있지만, 이 한계를 초과하면 프로그램이 중단될 수 있습니다.
+Go의 기본 고루틴 스택 크기는 2KB 에서 시작하여 최대 1GB 까지 확장될 수 있지만,
+이 한계를 초과하면 프로그램이 중단될 수 있습니다.
 
 ##### 4. 성능 영향:
-defer 레코드가 많아질수록 함수 종료 시 더 많은 시간이 소요되고 이는 프로그램의 전반적인 성능 저하로 이어질 수 있습니다.
+당연한 이야기일 수 있지만, 지연 호출할 대상 함수가 많아지면 자연스레 함수 종료 시 많은 시간이 소요될 수 밖에 없고
+이는 시스템의 전반적인 성능에 영향을 미칠 수 있습니다.
 
-### 해결책과 대안
+#### for 문의 defer 사용 시 대안
 - 즉시 리소스 해제: 루프 내에서 리소스를 즉시 해제하는 것이 가장 안정.
 ``` go
 func safeFunction() {
@@ -235,26 +206,141 @@ func safeLoop() {
 }
 ```
 
-- 고루틴 사용 시 context 통한 관리 :
-``` go
-func controlledLoop(ctx context.Context) {
-    for {
-        select {
-        case <-ctx.Done():
-            return // 컨텍스트 취소 시 루프 종료
-        default:
-            // 작업 수행...
-        }
-    }
-}
-```
 
 ### 심화 예시
+[🔗bugoverdose 님의 블로그를 참조했습니다.](https://bugoverdose.github.io/development/go-defer-basics/#%EC%A7%80%EC%97%B0%EB%90%9C-%ED%95%A8%EC%88%98%EB%93%A4%EC%9D%80-%ED%95%A8%EC%88%98-%ED%98%B8%EC%B6%9C%EC%9D%98-%ED%83%88%EC%B6%9C-%EB%8B%A8%EA%B3%84%EC%97%90-%EC%8B%A4%ED%96%89)
+아래 심화 예시를 통해 defer 를 자세히 이해해보겠습니다.
 
-함수가 defer 함수의 인자로 들어갈 때 .
+``` go
+func delayRun(s string) {
+	fmt.Println("Emoji:", s)
+	fmt.Println("(3)")
+}
+
+func getEmoji() string {
+	fmt.Println("(2)")
+	return "⭐️"
+}
+
+func main() {
+	defer delayRun(getEmoji())
+	fmt.Println("(1)")
+}
+
+// 실행 순서
+> (2)
+> (1)
+> Emoji: ⭐️
+> (3)
+```
+`getEmoji()` 는 defer 된 delayRun() 의 인자로 동작하기 때문에 Go 런타임이 defer 문을 평가하는 시점에 호출됩니다.
+defer 로 선언된 delayRun() 가 `지연 호출 스택`에 추가되기 전에,
+delayRun() 의 인자로 들어갈 값을 확정해야 하므로 `getEmoji()` 함수가 먼저 실행됩니다.
+`getEmoji()` 내부 프린트 문이 실행되고 리턴 값을 delayRun() 의 인자로 넘기면, 해당 defer 함수는 지연 호출 스택에 정상적으로 등록됩니다.
+
+> **📌 정리) defer 구문 실행 시: <br/>**
+> - 지연된 함수의 인자가 즉시 평가됨 ➡️ getEmoji() 를 즉시 실행 <br/>
+> - 평가된 인자와 함수가 쌍으로 스택에 저장됨 ➡️ getEmoji() 리턴 값과 delayRun() 함수가 쌍으로 queue 에 저장됨<br/>
+> - 실제 함수 실행은 surrounding 함수가 return 될 때까지 지연 ➡️ surrounding 함수는 main() 을 의미 <br/>
+
+만약 delayRun(getEmoji()) 를 통째로 지연시키고 싶으면 아래처럼 인자가 없는 익명 함수 내부에서 defer 선언하면 됩니다.
+``` go
+func main() { // 인자가 없으므로 defer 실행 시점에 실행되는 함수는 없음
+	defer func() {
+		delayRun(getEmoji())
+	}()
+	fmt.Println("(1)") // 지연된 익명 함수를 그대로 호출
+}
+```
+### panic 발생 시 defer 의 동작
+``` go
+func handleInnerPanic() {
+	defer fmt.Println("(4) reachable")
+	fmt.Println("(1) reachable")
+	defer func() {
+		v := recover()
+		fmt.Println("(3) recovered:", v)
+	}()
+	defer fmt.Println("(2) reachable")
+	panic("panic의 원인")                 // panic 아래 쪽 코드는 실행 X
+	fmt.Println("unreachable")
+}
+
+> (1) reachable
+> (2) reachable
+> (3) recovered: panic의 원인
+> (4) reachable
+```
+위 코드를 통해 panic 이 발생해도 defer 로 선언된 함수는 반드시 실행된다는 점을 확인할 수 있습니다.
+panic 발생 지점 이후의 코드는 실행되지 않지만 이미 `defer stack` 에 등록된 함수는 차례대로(LIFO) 호출됩니다.
+defer 로 선언된 익명함수 내부의 recover 는 panic 을 포착하여 정상 실행 흐름으로 복구하는 역할을 하는데,
+이 역시 defer 에 등록되어 panic 을 효과적으로 처리할 수 있습니다.
+* recover 는 panic 을 포착하여 정상적인 실행 흐름으로 복구하는 역할
+
+![defer-advanced](/defer-advanced.png)
+
+### 마무리
+처음 Go 를 배울 땐 defer 를 단순 지연함수 정도로 생각했지만,
+깊이 공부할 수록 panic 이나 여러 defer 를 호출하는 등 다양한 케이스의 원리를 이해하기 위해 자세히 알아야 하는 키워드인 것 같습니다.
 
 
 
-ref) https://victoriametrics.com/blog/defer-in-go/
+##### 🔗 ref
+- https://victoriametrics.com/blog/defer-in-go/
+- [bugoverdose](https://bugoverdose.github.io/development/go-defer-basics/#%EC%A7%80%EC%97%B0%EB%90%9C-%ED%95%A8%EC%88%98%EB%93%A4%EC%9D%80-%ED%95%A8%EC%88%98-%ED%98%B8%EC%B6%9C%EC%9D%98-%ED%83%88%EC%B6%9C-%EB%8B%A8%EA%B3%84%EC%97%90-%EC%8B%A4%ED%96%89)
 
 
+[//]: # (### defer 함수의 인자 케이스 탐구)
+
+[//]: # (defer 를 사용할 때 함수의 인자가 어떻게 평가되고 실행되는지 이해하는 것은 매우 중요합니다. 다양한 시나리오를 통해 defer의 동작을 자세히 살펴보겠습니다.)
+
+[//]: # ()
+[//]: # (``` go)
+
+[//]: # (func basicDefer&#40;&#41; {)
+
+[//]: # (	for i := 0; i < 3; i++ {)
+
+[//]: # (		defer fmt.Printf&#40;"%d \n", i&#41;)
+
+[//]: # (	})
+
+[//]: # (	fmt.Println&#40;"기본 defer 실행 완료"&#41;)
+
+[//]: # (})
+
+[//]: # ()
+[//]: # (func deferWithClosure&#40;&#41; {)
+
+[//]: # (	for i := 0; i < 3; i++ {)
+
+[//]: # (		defer func&#40;&#41; {)
+
+[//]: # (			fmt.Printf&#40;"%d \n", i&#41;)
+
+[//]: # (		}&#40;&#41;)
+
+[//]: # (	})
+
+[//]: # (	fmt.Println&#40;"클로저를 이용한 defer 실행 완료"&#41;)
+
+[//]: # (})
+
+[//]: # ()
+[//]: # (func deferWithArgument&#40;&#41; {)
+
+[//]: # (	for i := 0; i < 3; i++ {)
+
+[//]: # (		defer func&#40;n int&#41; {)
+
+[//]: # (			fmt.Printf&#40;"%d \n", n&#41;)
+
+[//]: # (		}&#40;i&#41;)
+
+[//]: # (	})
+
+[//]: # (	fmt.Println&#40;"인자를 전달하는 defer 실행 완료"&#41;)
+
+[//]: # (})
+
+[//]: # (```)
