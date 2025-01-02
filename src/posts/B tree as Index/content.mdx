@@ -155,7 +155,7 @@ B+Tree는 자체적으로 self-balancing 과정을 통해 시간복잡도를 O(l
 이는 앞서 본 4차 B+Tree와 같은 원리지만 최소 키 개수가 2가 아닌 5를 기준으로 증가한다. <br/>
 따라서 N개의 키가 있을 때:
 
-``` 
+``` markdown
 4차 B+Tree: N ≥ 2^h  →  h ≤ log₂N
 10차 B+Tree: N ≥ 5^h  →  h ≤ log₅N
 ```
@@ -164,7 +164,7 @@ B+Tree는 자체적으로 self-balancing 과정을 통해 시간복잡도를 O(l
 이는 곧 Disk I/O 횟수를 줄여 데이터 조회 성능을 높이는 효과로 이어진다.
 
 예를 들어:
-```
+``` markdown
 N = 1,000,000 일 때
 4차 B+Tree : h ≤ log₂(1,000,000) ≈ 20  ➡️ (level 이 20인 Tree)
 10차 B+Tree : h ≤ log₅(1,000,000) ≈ 9  ➡️ (level 이 9인 Tree)
