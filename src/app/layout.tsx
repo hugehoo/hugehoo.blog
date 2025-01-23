@@ -11,9 +11,15 @@ import styles from "@/app/blog/TeamPage.module.css";
 import {useSelectedLayoutSegments} from "next/navigation";
 import {ContentsHeader} from "@/layouts/ContentsHeader";
 
-const fogsta = localFont({
-  src: '../../public/fonts/Fogsta Italic.woff2',
-  display: 'swap',
+const nanumSquare = localFont({
+  src: [
+    {
+      path: '../../public/fonts/NanumSquareNeoTTF-bRg.woff',
+      weight: '700',
+      style: 'bold',
+    },
+  ],
+  variable: '--font-nanum-square',
 })
 
 export default function RootLayout({children}: Readonly<{ children: React.ReactNode; }>) {
@@ -21,7 +27,7 @@ export default function RootLayout({children}: Readonly<{ children: React.ReactN
   console.log('📌', segment)
 
   return (
-    <html lang="en" className={fogsta.className}>
+    <html lang="en" className={nanumSquare.className}>
     <Head>
       <title>Tech Blog Team Page</title>
       <meta name="description" content="Our team building a world of positive consumption"/>

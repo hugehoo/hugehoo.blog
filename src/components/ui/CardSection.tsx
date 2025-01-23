@@ -12,7 +12,16 @@ const CardSection = ({posts}: { posts: CardInterface[] }) => {
         <Link href={`blog/${post.category}/${decodeURIComponent(post.title)}`}>
           <div key={post.title}
                className={styles.teamMember}>
-            <h3>{post.title}</h3>
+            <div>
+              <div className="flex">
+                <span className="text-xl font-semibold">
+                - {post.title}
+                </span>
+                <span className="mr-3"></span>
+                <span className="text-s border border-[#333333] rounded-lg px-2">
+                {post.category}</span>
+              </div>
+            </div>
             {/*  /!*<div*!/*/}
             {/*  /!*        // className={styles.underlineTitle}*!/*/}
             {/*  /!*>*!/*/}

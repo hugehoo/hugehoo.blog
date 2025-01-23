@@ -3,7 +3,7 @@
   max-width: 900px;
   margin: 0 auto;
   padding: 20px;
-  background-color: hsl(var(--background));
+  /* background-color: hsl(var(--background)); */
   border: 1px solid #333;
   box-shadow: 10px 4px 8px rgba(0, 0, 0, 0.1); /* 그림자 추가 */
   height: auto;
@@ -127,7 +127,7 @@
   margin: 0 0 10px 0;
 
   text-align: center;
-  border: 1px solid #333333;
+  /* border: 1px solid #333333; */
   height: 100px;
 }
 
