@@ -12,6 +12,7 @@ export interface CardInterface {
   thumbnail: string;
   category: string;
   content: string;
+  summary: string;
   date: Date;
 }
 
@@ -29,6 +30,7 @@ const getPosts = (): CardInterface[] => {
       date: data.date,
       thumbnail: data.thumbnail,
       category: data.category,
+      summary : data.desc,
       content: content
     }
   })

@@ -15,17 +15,17 @@ const MainIntro = () => {
             <div className={styles.underlineTitle}>
               <h3>{name}</h3>
             </div>
-            <FlipCard
-              frontImage={`/team-member-${index + 1}.jpeg`}
-              altText={name}
-              backContent={
-                <div>
-                  <h4>{name}</h4>
-                </div>
-              }
-              width={400}
-              height={600}
-            />
+            {/*<FlipCard*/}
+            {/*  frontImage={`/team-member-${index + 1}.jpeg`}*/}
+            {/*  altText={name}*/}
+            {/*  backContent={*/}
+            {/*    <div>*/}
+            {/*      <h4>{name}</h4>*/}
+            {/*    </div>*/}
+            {/*  }*/}
+            {/*  width={400}*/}
+            {/*  height={600}*/}
+            {/*/>*/}
           </div>
         ))}
       </div>
