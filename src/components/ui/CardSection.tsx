@@ -8,8 +8,8 @@ import Link from "next/link";
 const CardSection = ({posts}: { posts: CardInterface[] }) => {
   return (
     <div className={styles.teamGrid_Post}>
-      {posts.map((post, index) => (
-        <Link href={`blog/${post.category}/${decodeURIComponent(post.title)}`}>
+      {posts.map((post, index) => ( 
+        <Link key={index} href={`blog/${post.category}/${decodeURIComponent(post.title)}`}>
           <div key={post.title}
                className={styles.teamMember}>
             <div>
