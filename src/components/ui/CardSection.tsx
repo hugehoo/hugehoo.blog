@@ -17,9 +17,10 @@ const CardSection = ({posts}: { posts: CardInterface[] }) => {
                 <span className="text-xl font-semibold">
                 - {post.title}
                 </span>
-                <span className="mr-3"></span>
-                <span className="text-s border border-[#333333] rounded-lg px-2">
-                {post.category}</span>
+                <span className="mr-3"> </span>
+                <span className="text-[12px] border border-[#333333] rounded-lg px-2 flex items-center">
+                {post.category}
+                </span>
               </div>
             </div>
             {/*  /!*<div*!/*/}

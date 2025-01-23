@@ -14,9 +14,8 @@ import {ContentsHeader} from "@/layouts/ContentsHeader";
 const nanumSquare = localFont({
   src: [
     {
-      path: '../../public/fonts/NanumSquareNeoTTF-bRg.woff',
-      weight: '700',
-      style: 'bold',
+      path: '../../public/fonts/NanumSquareNeoTTF-cBd.woff',
+      style: 'normal',
     },
   ],
   variable: '--font-nanum-square',
