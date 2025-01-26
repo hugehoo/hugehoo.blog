@@ -12,7 +12,9 @@ export interface CardInterface {
   thumbnail: string;
   category: string;
   content: string;
+  summary: string;
   date: Date;
+  open: boolean;
 }
 
 const getPosts = (): CardInterface[] => {
@@ -29,7 +31,9 @@ const getPosts = (): CardInterface[] => {
       date: data.date,
       thumbnail: data.thumbnail,
       category: data.category,
-      content: content
+      summary : data.desc,
+      content: content,
+      open: data.open
     }
   })
     .sort((a, b) => dayjs(b.date).valueOf() - dayjs(a.date).valueOf());

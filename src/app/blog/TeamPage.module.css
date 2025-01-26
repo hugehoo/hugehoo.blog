@@ -1,9 +1,12 @@
+
 .container {
   max-width: 900px;
   margin: 0 auto;
   padding: 20px;
-  background-color: #f0f0f0;
-  border: 1.5px solid #333;
+  /* background-color: hsl(var(--background)); */
+  border: 1px solid #333;
+  box-shadow: 10px 4px 8px rgba(0, 0, 0, 0.1); /* 그림자 추가 */
+  height: auto;
 }
 
 .header {
@@ -75,6 +78,7 @@
 
 .teamSection {
   margin-bottom: 40px;
+  /*height: 100%;*/
 }
 
 .teamSection h2 {
@@ -83,7 +87,7 @@
 }
 
 .teamSection h3 {
-  border-bottom: 1px solid #333;
+  /*border-bottom: 1px solid #333;*/
   padding-bottom: 10px;
   text-align: left;
 }
@@ -92,7 +96,6 @@
   /*display: inline-block;*/
   margin-bottom: 20px;
   border-bottom: 1px solid #333;
-
 }
 
 .underlineTitle p {
@@ -108,14 +111,30 @@
   gap: 20px;
 }
 
-.teamMember {
-  text-align: center;
+.teamGrid_Post {
+  position: relative;
+  display: block;
+  /*grid-template-columns: repeat(2, 1fr);*/
+  /*gap: 10px;*/
+  grid-template-columns: repeat(2, 1fr);
+  grid-auto-rows: minmax(200px, auto); /* 최소 높이를 지정하고, 내용에 따라 조정 */
+  gap: 10px;
+}
 
+.teamMember {
+  position: relative;
+  display: block;
+  margin: 0 0 0 0;
+
+  text-align: center;
+  /* border: 1px solid #333333; */
+  height: 9cap;
 }
 
 .teamMember img {
   border-radius: 2px;
   border: 1px solid #333333;
+  height: 40%;
 }
 
 
