@@ -8,7 +8,9 @@ import Link from "next/link";
 const CardSection = ({posts}: { posts: CardInterface[] }) => {
   return (
     <div className={styles.teamGrid_Post}>
-      {posts.map((post, index) => ( 
+      {
+        posts.filter(post => post.open)
+        .map((post, index) => ( 
         <Link key={index} href={`blog/${post.category}/${decodeURIComponent(post.title)}`}>
           <div key={post.title}
                className={styles.teamMember}>
@@ -18,7 +20,7 @@ const CardSection = ({posts}: { posts: CardInterface[] }) => {
                   ⚡️ {post.title}
                 </span>
                 <span className="mr-3"> </span>
-                <span className="text-[12px] border border-[#333333] rounded-lg px-2 flex items-center">
+                <span className="text-[#FF1493] text-[12px] border border-pink-500 bg-red-100/50 rounded-lg px-2 flex items-center">
                 {post.category}
                 </span>
               </div>
