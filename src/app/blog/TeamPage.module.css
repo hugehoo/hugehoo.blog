@@ -150,6 +150,6 @@
   font-family: var(--font-nanum-square);
 }
 
-.wrapper * {
+/* .wrapper * {
   font-family: inherit !important;
-}
+} */

@@ -33,9 +33,14 @@ export const ContentsHeader = ({segment}: ContentsHeaderProps) => {
           <Link href="/" className={styles.ctaButton}>Join the Movement</Link>
         </div>
       </div>
-      <div className={styles.bottomHeader}>Title: {title}</div>
-      <div className={styles.bottomHeader}>Category: {category}</div>
-      {/*<div className={styles.bottomHeader}>{currentTime}</div>*/}
+      <div className="flex items-center gap-2">
+        <span className="text-xl font-bold">
+          {title}
+        </span>
+        <span className="text-[#FF1493] text-[13px] border border-pink-500 bg-red-100/50 rounded-lg px-2 flex items-center">
+          {category}
+        </span>
+      </div>
     </div>
   );
 };

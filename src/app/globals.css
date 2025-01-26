@@ -90,3 +90,15 @@ pre {
 }
 
 
+.language-bash.hljs {
+  color: #383a42;
+  background: #fafafa;
+}
+
+.language-bash.hljs .hljs-built_in {
+  color: #0184bc;
+}
+
+.language-bash.hljs .hljs-string {
+  color: #50a14f;
+}

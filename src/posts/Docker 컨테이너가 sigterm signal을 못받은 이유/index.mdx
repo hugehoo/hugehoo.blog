@@ -1,7 +1,7 @@
 ---
-title: "sigterm signal 못받은 이유"
-date: 2024-07-14
-desc: FE 개발자라면 티스토리 말고 개인 블로그 하나쯤은,,
+title: "Docker 컨테이너가 sigterm signal을 못받은 이유"
+date: 2025-01-26
+desc: 복합적인 이유가 있을겁니다..
 thumbnail: /team-member-1.jpeg
 category: Docker
 open: true
@@ -48,7 +48,7 @@ func (s *Server) StartServer() error {
 
 	s.setServerInfo()
 	channel := make(chan os.Signal, 1)
-	signal.Notify(channel, syscall.SIGINT, syscall.SIGTERM을) // 단순 종료 시그널 + Docker container stop 시그널
+	signal.Notify(channel, syscall.SIGINT, syscall.SIGTERM) // 단순 종료 시그널 + Docker container stop 시그널
 
 	go func() {
 		<-channel

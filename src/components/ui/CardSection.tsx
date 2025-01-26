@@ -25,7 +25,7 @@ const CardSection = ({posts}: { posts: CardInterface[] }) => {
                 </span>
               </div>
               <div className="flex text-m mt-3">
-                <p>- {post.summary}</p>
+                <p>💭 {post.summary}</p>
               </div>
             </div>
             {/*  /!*<div*!/*/}

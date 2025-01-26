@@ -1,13 +1,13 @@
 import ReactMarkdown from "react-markdown";
 import Image from "next/image";
 import {Prism as SyntaxHighlighter} from 'react-syntax-highlighter';
-import {base16AteliersulphurpoolLight, nightOwl} from 'react-syntax-highlighter/dist/cjs/styles/prism';
+import {base16AteliersulphurpoolLight, nightOwl, prism, oneDark} from 'react-syntax-highlighter/dist/cjs/styles/prism';
 import remarkGfm from 'remark-gfm';
 import rehypeRaw from "rehype-raw";
 
 const CodeBlock: React.FC<{ language: string; value: string }> = ({language, value}) => {
   return (
-    <SyntaxHighlighter language={language} style={nightOwl}>
+    <SyntaxHighlighter language={language} style={oneDark} className="language-bash hljs">
       {value}
     </SyntaxHighlighter>
   );
