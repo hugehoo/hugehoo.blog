@@ -1,7 +1,7 @@
 import ReactMarkdown from "react-markdown";
 import Image from "next/image";
 import {Prism as SyntaxHighlighter} from 'react-syntax-highlighter';
-import {base16AteliersulphurpoolLight, nightOwl, prism, oneDark} from 'react-syntax-highlighter/dist/cjs/styles/prism';
+import {oneDark} from 'react-syntax-highlighter/dist/cjs/styles/prism';
 import remarkGfm from 'remark-gfm';
 import rehypeRaw from "rehype-raw";
 
