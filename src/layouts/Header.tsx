@@ -28,11 +28,7 @@ export const Header = () => {
           <Link href="/" className={styles.ctaButton}>Join the Movement</Link>
         </div>
         <div className={styles.sample}>
-          <br/>
-          <br/>
-          <br/>
-          <br/>
-          {currentTime}
+          {/* {currentTime} */}
         </div>
       </div>
     </div>
