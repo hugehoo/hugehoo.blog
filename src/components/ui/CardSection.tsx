@@ -15,12 +15,15 @@ const CardSection = ({posts}: { posts: CardInterface[] }) => {
             <div>
               <div className="flex">
                 <span className="text-xl font-semibold">
-                - {post.title}
+                  ⚡️ {post.title}
                 </span>
                 <span className="mr-3"> </span>
                 <span className="text-[12px] border border-[#333333] rounded-lg px-2 flex items-center">
                 {post.category}
                 </span>
+              </div>
+              <div className="flex text-m mt-3">
+                <p>- {post.summary}</p>
               </div>
             </div>
             {/*  /!*<div*!/*/}
