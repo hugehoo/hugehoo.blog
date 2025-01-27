@@ -28,30 +28,6 @@ const CardSection = ({posts}: { posts: CardInterface[] }) => {
                 <p>💭 {post.summary}</p>
               </div>
             </div>
-            {/*  /!*<div*!/*/}
-            {/*  /!*        // className={styles.underlineTitle}*!/*/}
-            {/*  /!*>*!/*/}
-            {/*  <img src={post.thumbnail} alt={"alt"}/>*/}
-            {/*  /!*</div>*!/*/}
-            {/*  /!*<div>*!/*/}
-            {/*  /!*  <h4>Read more...</h4>*!/*/}
-            {/*  /!*</div>*!/*/}
-            {/*</Link>*/}
-
-            {/*<FlipCard*/}
-            {/*  frontImage={`${post.thumbnail}`}*/}
-            {/*  altText={post.title}*/}
-            {/*  backContent={*/}
-            {/*    <Link href={`blog/${post.category}/${decodeURIComponent(post.title)}`}>*/}
-            {/*      <div>*/}
-            {/*        <h4>Read more...</h4>*/}
-            {/*        /!*<h4>{post.title}</h4>*!/*/}
-            {/*      </div>*/}
-            {/*    </Link>*/}
-            {/*  }*/}
-            {/*  width={400}*/}
-            {/*  height={600}*/}
-            {/*/>*/}
           </div>
         </Link>
       ))}
