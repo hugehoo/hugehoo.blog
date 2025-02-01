@@ -1,0 +1,120 @@
+---
+title: Visitor Pattern
+date: 2025-01-27
+desc: 솔직히 처음 들어봅니다..
+thumbnail: /team-member-1.jpeg
+category: Redis
+open: true
+---
+
+### 더블 디스패치
+
+비지터 패턴은 구조체를 수정하지 않고도, 구조체에 행동을 추가할 수 있다.
+당신은 Opensource Shape(가명) 의 메인테이터로서 세상의 모든 도형에 대한 코드를 정의하고 오픈소스로 제공하고 있다.
+서로 다른 도형 구조체가 존재한다고 생각해보자. 
+
+이 구조체들에 공통적으로 넓이를 구하는 getArea() 메서드를 추가하고 싶다고 가정하자.
+
+
+ 당신의 멋진 lib을 사용하기 시작하면 그들은 여러 기능들을 요청할 것입니다. 이 중 가장 간단한 요청을 검토해 봅시다: 회사 부서가 모양 구조체들에 get­Area​(면적 가져오기) 행동을 추가해달라고 요청했습니다.
+
+이 문제를 해결하기 위한 여러 옵션이 있습니다.
+
+가장 먼저 떠오르는 옵션은 get­Area 메서드를 모양 인터페이스에 직접 추가한 다음 각 모양 구조체​(struct)​에서 구현하는 것입니다. 좋은 옵션인 듯싶으나 단점이 있습니다. 당신은 라이브러리의 관리자로서 누군가가 다른 행동을 요청할 때마다 당신의 귀중한 코드가 손상되는 위험을 감수하고 싶지 않을 것입니다. 그럼에도 불구하고 당신은 다른 팀들이 당신의 라이브러리를 어떻게든 확장하기를 원합니다.
+비지터 패턴을 사용하여 위의 문제를 해결하는 것이며, 다음과 같이 비지터 인터페이스를 정의하는 것으로 시작합니다:
+
+```go
+
+// shape.go
+type shape interface {
+  getType() string
+  accept(visitor)
+}
+```
+
+
+```go
+// square.go
+type square struct {
+  side int
+}
+
+func (s *square) getType(v Visitor) string { 
+  return "Square"
+}
+
+func (s *square) accept(v Visitor) {
+  v.visitForSquare(s)
+}
+```
+
+
+```go
+// circle.go
+type circle struct {
+  radius int
+}
+
+func (c *circle) getType(v Visitor) string {
+  return "Circle"
+} 
+
+func (c *circle) accept(v Visitor) {
+  v.visitForCircle(c)
+}
+```
+
+```go
+// rectangle.go
+type rectangle struct {
+  length int
+  width int
+} 
+
+func (r *rectangle) getType(v Visitor) string {
+  return "Rectangle"
+}
+
+func (r *rectangle) accept(v Visitor) {
+  v.visitForRectangle(r)
+}
+```
+
+
+
+```go
+// visitor.go
+type visitor interface {
+   visitForSquare(*Square)
+   visitForCircle(*Circle)
+   visitForRectangle(*Rectangle)
+}
+
+```
+
+
+
+여기서 각 Shape 구현체의 넓이를 구하고 싶은 경우를 생각해보자.
+일일이 각 구현체(square, circle, rectangle)에 넓이를 구하는 메서드(areaCalculator)를 추가하는 것은 번거로운 일이고, 
+~~다수의 컨트리뷰터가 개별적으로 추가하는 경우 코드의 통일성도 잃을 수 있다.~~ 이런 경우 Visitor Pattern을 사용하면 좋다.
+왜냐하면 각 구현체에 넓이를 구하는 메서드를 추가하는 것이 아니라, 비지터 인터페이스를 구현하는 구현체를 추가하면 되기 때문이다.
+
+
+```go
+// areaCalculator.go
+type AreaCalculator struct {
+  area int
+}
+
+func (a *AreaCalculator) visitForSquare(s *Square) {        
+  a.area = s.side * s.side
+}
+
+func (a *AreaCalculator) visitForCircle(c *Circle) {
+  a.area = c.radius * c.radius * math.Pi
+}
+
+func (a *AreaCalculator) visitForRectangle(r *Rectangle) {
+  a.area = r.length * r.width
+}
+```
