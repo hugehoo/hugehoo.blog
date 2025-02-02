@@ -31,9 +31,9 @@ const PostMarkdown = ({params}: Props) => {
           h1: ({node, ...props}) =>
             <h1 style={{color: '#111', fontSize: '2em', margin: '2.5em 0 1em 0'}} {...props} />,
           h2: ({node, ...props}) =>
-            <h2 style={{color: '#111', fontSize: '1.8em', fontWeight: '900', margin: '1.5em 0 0.3em 0'}} {...props} />,
+            <h2 style={{color: '#111', fontSize: '1.8em', fontWeight: '900', margin: '1.5em 0 0.5em 0'}} {...props} />,
           h3: ({node, ...props}) =>
-            <h3 style={{color: '#111', fontSize: '1.6em', fontWeight: '900', margin: '2em 0 0.5em 0'}} {...props} />,
+            <h3 style={{color: '#111', fontSize: '1.6em', fontWeight: '900', margin: '0.7em 0 0.3em 0'}} {...props} />,
           h4: ({node, ...props}) =>
             <h4 style={{color: '#111', fontSize: '1.4em', margin: '2em 0 0.5em 0'}} {...props} />,
           h5: ({node, ...props}) =>
@@ -43,7 +43,7 @@ const PostMarkdown = ({params}: Props) => {
           ol: ({node, ...props}) =>
             <ol style={{color: '#111', marginLeft: '1.2em', listStyleType: 'decimal',}} {...props} />,
           li: ({node, ...props}) =>
-            <li style={{color: '#111', marginLeft: '0.5em'}} {...props} />,
+            <li style={{color: '#111', marginLeft: '0.5em', fontSize: '0.95em', lineHeight: '1.9em'}} {...props} />,
           ul: ({node, ...props}) =>
             <ul style={{color: '#111', marginLeft: '0.5em', listStyleType: 'disc',}} {...props} />,
           strong: ({node, ...props}) =>
@@ -52,7 +52,7 @@ const PostMarkdown = ({params}: Props) => {
             <p style={{
               fontSize: '0.95em',
               marginBottom: '0.5em',
-              lineHeight: '1.7em'
+              lineHeight: '1.75em'
             }} {...props} />,
           a: ({href, ...props}) =>
             <a href={href} style={{color: '#3498db'}} {...props} />,
