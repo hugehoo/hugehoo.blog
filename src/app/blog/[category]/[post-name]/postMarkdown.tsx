@@ -52,7 +52,7 @@ const PostMarkdown = ({params}: Props) => {
             <p style={{
               fontSize: '0.95em',
               marginBottom: '0.5em',
-              lineHeight: '1.75em'
+              lineHeight: '1.88em'
             }} {...props} />,
           a: ({href, ...props}) =>
             <a href={href} style={{color: '#3498db'}} {...props} />,

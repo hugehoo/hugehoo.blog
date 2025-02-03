@@ -21,16 +21,9 @@ export const Header = () => {
   }, []);
 
   return (
-    <div className={styles.header}>
-      <h1 className={styles.title}>Huge.Hoo Devlog</h1>
-      <div className={styles.sideHeader}>
-        <div className={styles.sample}>
-          <Link href="/" className={styles.ctaButton}>Join the Movement</Link>
-        </div>
-        <div className={styles.sample}>
-          {/* {currentTime} */}
-        </div>
+      <div className={styles.header}>
+        <h1 className={styles.title}>Huge.Hoo</h1>
+        <h1 className={styles.title}>Devlog</h1>
       </div>
-    </div>
   );
 };

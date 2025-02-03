@@ -27,12 +27,13 @@ export const ContentsHeader = ({segment}: ContentsHeaderProps) => {
   const title = segment[2] ? decodeURIComponent(segment[2]) : 'Default Title';
   return (
     <div className={styles.contentHeader}>
+
+    <Link href="/">
       <div className={styles.topHeader}>
-        <h1 className={styles.title}>Huge.Hoo Devlog</h1>
-        <div className={styles.sideHeader}>
-          <Link href="/" className={styles.ctaButton}>Join the Movement</Link>
-        </div>
+        <h1 className={styles.title}>Huge.Hoo</h1>
+        <h1 className={styles.title}>Devlog</h1>
       </div>
+      </Link>
       <div className="flex items-center gap-2">
         <span className="text-xl font-bold">
           {title}
