@@ -24,9 +24,9 @@ export const Header = () => {
     <div className={styles.header}>
       <h1 className={styles.title}>Huge.Hoo Devlog</h1>
       <div className={styles.sideHeader}>
-        <div className={styles.sample}>
+        {/* <div className={styles.sample}>
           <Link href="/" className={styles.ctaButton}>Join the Movement</Link>
-        </div>
+        </div> */}
         <div className={styles.sample}>
           {/* {currentTime} */}
         </div>

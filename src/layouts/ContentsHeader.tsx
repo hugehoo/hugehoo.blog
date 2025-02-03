@@ -29,9 +29,9 @@ export const ContentsHeader = ({segment}: ContentsHeaderProps) => {
     <div className={styles.contentHeader}>
       <div className={styles.topHeader}>
         <h1 className={styles.title}>Huge.Hoo Devlog</h1>
-        <div className={styles.sideHeader}>
+        {/* <div className={styles.sideHeader}>
           <Link href="/" className={styles.ctaButton}>Join the Movement</Link>
-        </div>
+        </div> */}
       </div>
       <div className="flex items-center gap-2">
         <span className="text-xl font-bold">
