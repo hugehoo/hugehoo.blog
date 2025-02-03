@@ -10,12 +10,18 @@
 }
 
 .header {
-  display: flex;
+  display: block;
   justify-content: space-between;
   align-items: center;
   margin-bottom: 40px;
   /*padding-bottom: 40px;*/
-  border-bottom: 1px solid #333;
+  /* border-bottom: 1px solid #333; */
+}
+
+@media screen and (max-width: 480px) {
+  .header {
+    height: 8em;
+  }
 }
 
 .contentHeader {
@@ -29,8 +35,14 @@
 
 .topHeader {
   justify-content: space-between;
-  display: flex;
-  height: 240px;
+  display: block;
+  height: 250px;
+}
+
+@media screen and (max-width: 480px) {
+  .topHeader {
+    height: 170px;
+  }
 }
 
 .bottomHeader {
@@ -56,9 +68,27 @@
   /*top: 90px;*/
   width: 180px;
 }
+
 .title {
   font-size: 4.5em;
-  max-width: 60%;
+  /* max-width: 50%; */
+}
+
+/* @media screen and (max-width: 768px) {
+  .title {
+    width: 150px;
+    height: 150px;
+    padding: 12px 24px;
+  }
+} */
+
+@media screen and (max-width: 480px) {
+  .title {
+    font-size: 3em;
+    max-width: 20%;
+
+    /* padding: 10px 20px; */
+  }
 }
 
 .ctaButton {
@@ -74,6 +104,23 @@
   justify-content: center;
   align-items: center;
   text-align: center;
+}
+
+
+@media screen and (max-width: 768px) {
+  .ctaButton {
+    width: 150px;
+    height: 150px;
+    padding: 12px 24px;
+  }
+}
+
+@media screen and (max-width: 480px) {
+  .ctaButton {
+    width: 120px;
+    height: 120px;
+    padding: 10px 20px;
+  }
 }
 
 .teamSection {
