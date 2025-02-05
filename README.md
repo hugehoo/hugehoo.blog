@@ -12,4 +12,4 @@ ref
 - https://kr.pinterest.com/pin/982558843698363432/
 - https://gyeongsun.com/
 - https://100pearlcent.github.io/
-![img.png](img.png)
+- https://www.gimsesu.me/blog
