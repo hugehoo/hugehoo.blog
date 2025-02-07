@@ -38,7 +38,7 @@ export const ContentsHeader = ({segment}: ContentsHeaderProps) => {
         <span className="text-xl font-bold">
           {title}
         </span>
-        <span className="text-[#FF1493] text-[13px] border border-pink-500 bg-red-100/50 rounded-lg px-2 flex items-center">
+        <span className="text-[#FF1493] text-[13px] m-1 border-pink-500 bg-red-100/50 rounded-lg px-2 flex items-center">
           {category}
         </span>
       </div>

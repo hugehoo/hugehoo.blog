@@ -91,6 +91,7 @@
 
 .title {
   font-size: 2.5em;
+  font-weight: 600;
   /* max-width: 50%; */
 }
 
@@ -154,16 +155,9 @@
   position: relative;
   /*display: inline-block;*/
   margin-bottom: 40px;
-  font-size: 2em;
-  font-weight: 600;
+  font-size: 1.8em;
+  font-weight: 500;
   /* border-bottom: 1px solid #333; */
-}
-
-.underlineTitle p {
-  font-size: 44px;
-  font-weight: bold;
-  margin: 0;
-  padding-bottom: 5px;
 }
 
 .teamGrid {
