@@ -45,7 +45,7 @@ const MainBlog = () => {
   return (
     <section className={styles.teamSection}>
       <div className={styles.underlineTitle}>
-        <p>Posts</p>
+        Blog
       </div>
       <CardSection posts={posts}/>
     </section>
