@@ -20,9 +20,9 @@ const CardSection = ({posts}: { posts: CardInterface[] }) => {
                   ⚡️ {post.title}
                 </span>
                 <span className="mr-3"> </span>
-                <span className="text-[#FF1493] text-[12px] border border-pink-500 bg-red-100/50 rounded-lg px-2 flex items-center">
-                {post.category}
-                </span>
+                <div className="h-1px text-[#FF1493] text-[13px] border-pink-500 bg-red-100/50 m-1 rounded-lg px-2 flex items-center">
+                  {post.category}
+                </div>
               </div>
               <div className="flex text-m mt-3">
                 <p>💭 {post.summary}</p>

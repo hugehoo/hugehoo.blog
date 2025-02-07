@@ -62,10 +62,14 @@
 @layer base {
   * {
     @apply border-border;
+
+    font-family: var(--font-ibm-plex-kr), var(--font-ibm-plex);
+
   }
 
   body {
     @apply bg-background text-foreground;
+    font-family: var(--font-ibm-plex-kr), var(--font-ibm-plex);
   }
 }
 
