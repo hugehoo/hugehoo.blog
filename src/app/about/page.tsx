@@ -1,11 +1,10 @@
 import MainBlog from "@/components/ui/MainBlog";
 
-const Blog = async () => {
+const About = async () => {
   return (
     <>
-      <MainBlog/>
     </>
   )
 }
 
-export default Blog;
+export default About;

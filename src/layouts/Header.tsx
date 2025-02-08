@@ -14,15 +14,14 @@ export const Header = () => {
   return (
     <div className={`${styles.header} font-[var(--font-ibm-plex-kr)]`}> 
         <div className={styles.headerTitle}>
-          <Link href="">
+          <Link href="/">
             <div className={styles.title}>huge.hoo</div>
           </Link>
-          {/* <div className={styles.title}>icon later</div> */}
         </div>
         <div className={styles.navStyle}>
           <nav className='text-xl'>
-            <Link className='mr-4' href="">Blog</Link>
-            <Link  className='mr-4' href="">About</Link>
+            <Link className='mr-4' href="/blog">Blog</Link>
+            <Link  className='mr-4' href="/about">About</Link>
           </nav>
           <div className='flex text-xl mr-1'>
             <a href={github} className="mr-4">

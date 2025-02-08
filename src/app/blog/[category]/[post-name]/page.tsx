@@ -4,24 +4,6 @@ import {sync} from "glob";
 import fs from "fs";
 import matter from "gray-matter";
 import PostMarkdown from "@/app/blog/[category]/[post-name]/postMarkdown";
-import localFont from "next/font/local";
-
-
-const nanumSquare = localFont({
-  src: [
-    {
-      path: '../../../../../public/fonts/NanumSquareNeoTTF-bRg.woff',
-      weight: '500',
-      style: 'normal',
-    },
-    {
-      path: '../../../../../public/fonts/NanumSquareNeoTTF-bRg.woff',
-      weight: '700',
-      style: 'bold',
-    },
-  ],
-  variable: '--font-nanum-square',
-})
 
 
 interface Props {
@@ -74,9 +56,7 @@ const Post = ({params}: Props) => {
   const mdx = findPostByTitle(decodedTitle)
   return (
     <div className={styles.textContainer}>
-      <div className={`${nanumSquare.variable} ${styles.wrapper}`}>
-        {/*<h1>Category: {category}</h1>*/}
-        {/*<h2>Title: {decodedTitle}</h2>*/}
+      <div className={`${styles.wrapper}`}>
         <PostMarkdown params={{decodedTitle, content: mdx!!.content}}/>
       </div>
     </div>

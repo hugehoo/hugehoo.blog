@@ -4,7 +4,6 @@ import MainBlog from "@/components/ui/MainBlog";
 const Home = async () => {
   return (
     <>
-      {/* <MainIntro/> */}
       <MainBlog/>
     </>
   )
