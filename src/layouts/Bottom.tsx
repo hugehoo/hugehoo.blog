@@ -6,7 +6,9 @@ export const Bottom = () => {
   return (
     <div className={styles.bottom}>
       {/* <div className={styles.underlineTitle}/> */}
-      <p>@huge.hoo</p>
+      <a href="">
+        <p>@huge.hoo</p>
+      </a>
     </div>
   );
 };
