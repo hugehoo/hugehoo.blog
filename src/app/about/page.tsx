@@ -70,11 +70,17 @@ const About = async () => {
                 </li>
                 <li>
                   2022 Junction Asia 해커톤{' '}
-                  <a href="https://www.newsis.com/view/?id=NISX20220822_0001985841">
-                    Zep
-                  </a>{' '}
-                  트랙에서 1위를 수상한 경험이 있습니다.{' '}
-                  <a href="https://github.com/ZEP-SIGHT/junction-back">
+                  <a
+                    className={anchorProperty}
+                    href="https://www.newsis.com/view/?id=NISX20220822_0001985841"
+                  >
+                    Zep 트랙에서 1위
+                  </a>
+                  를 수상했습니다.{' '}
+                  <a
+                    className={anchorProperty}
+                    href="https://github.com/ZEP-SIGHT/junction-back"
+                  >
                     🔗Github (2022.08)
                   </a>
                 </li>
