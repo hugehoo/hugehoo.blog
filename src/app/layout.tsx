@@ -4,7 +4,6 @@ import "./globals.css";
 import {IBM_Plex_Sans_KR, IBM_Plex_Sans} from 'next/font/google'
 import localFont from 'next/font/local'
 import Head from "next/head";
-import Blog from "./blog/(main)/page"
 import {Header} from "@/layouts/Header";
 import {Bottom} from "@/layouts/Bottom";
 import styles from "@/app/blog/TeamPage.module.css";
@@ -36,7 +35,8 @@ export default function RootLayout({children}: Readonly<{ children: React.ReactN
       <body>
       <div className={styles.container}>
         <main className={styles.main}>
-          {segment.length == 0 ? <Header/> : <ContentsHeader segment={segment}/>}
+          <Header/>
+          {/* {segment.length == 0 ? <Header/> : <ContentsHeader segment={segment}/>} */}
           {children}
           <Bottom/>
         </main>
