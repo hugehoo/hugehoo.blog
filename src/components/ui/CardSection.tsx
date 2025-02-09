@@ -8,7 +8,7 @@ import { log } from 'console';
 const CardSection = ({ posts }: { posts: CardInterface[] }) => {
   return (
     // grid 레이아웃 적용, 화면 크기에 따라 열 수 조정
-    <div className="grid grid-cols-1 gap-4 p-4">
+    <div className="grid grid-cols-1 gap-4">
       {posts
         .filter((post) => post.open)
         .map((post, index) => (

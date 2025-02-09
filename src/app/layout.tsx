@@ -8,7 +8,6 @@ import {Header} from "@/layouts/Header";
 import {Bottom} from "@/layouts/Bottom";
 import styles from "@/app/blog/TeamPage.module.css";
 import {useSelectedLayoutSegments} from "next/navigation";
-import {ContentsHeader} from "@/layouts/ContentsHeader";
 
 const ibmPlexSansKr = IBM_Plex_Sans_KR({
   weight: ['400', '500', '600', '700'],
@@ -36,7 +35,6 @@ export default function RootLayout({children}: Readonly<{ children: React.ReactN
       <div className={styles.container}>
         <main className={styles.main}>
           <Header/>
-          {/* {segment.length == 0 ? <Header/> : <ContentsHeader segment={segment}/>} */}
           {children}
           <Bottom/>
         </main>

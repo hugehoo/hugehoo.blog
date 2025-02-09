@@ -20,13 +20,13 @@ export const Header = () => {
       <div className={styles.navStyle}>
         <nav className="text-xl">
           <Link
-            className={`mr-4 ${pathname === '/blog' ? 'text-grey-700 font-medium' : ''}`}
+            className={`mr-4 ${pathname === '/blog' ? 'text-grey-700 font-semibold' : ''}`}
             href="/blog"
           >
             Blog
           </Link>
           <Link
-            className={`mr-4 ${pathname === '/about' ? 'text-grey-700 font-medium' : ''}`}
+            className={`mr-4 ${pathname === '/about' ? 'text-grey-700 font-semibold' : ''}`}
             href="/about"
           >
             About
