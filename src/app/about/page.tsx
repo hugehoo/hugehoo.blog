@@ -1,5 +1,3 @@
-import MainBlog from '@/components/ui/MainBlog';
-
 const About = async () => {
   return (
     <>
