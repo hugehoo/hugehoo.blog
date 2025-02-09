@@ -6,7 +6,8 @@ import Link from "next/link";
 import { Github, Linkedin } from 'lucide-react';
 
 const linkedIn = 'https://www.linkedin.com/in/%EC%84%B1%ED%9B%84-%EC%9E%84-7a2238195/'
-const github= 'https://www.linkedin.com/in/%EC%84%B1%ED%9B%84-%EC%9E%84-7a2238195/'
+const github= 'https://github.com/hugehoo'
+const iconSize = 27
 
 export const Header = () => {
   const [currentTime, setCurrentTime] = useState('');
@@ -25,10 +26,10 @@ export const Header = () => {
           </nav>
           <div className='flex text-xl mr-1'>
             <a href={github} className="mr-4">
-              <Github size={28} />
+              <Github size={iconSize} />
             </a>
             <a href={linkedIn} className="">
-              <Linkedin size={28} />
+              <Linkedin size={iconSize} />
             </a>
           </div>
         </div>

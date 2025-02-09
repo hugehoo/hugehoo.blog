@@ -133,9 +133,14 @@
     padding: 10px 20px;
   }
 }
-
+.bottom {
+  /* margin: 10px 0px 10px 0; */
+  padding-top: 10px;
+  border-top: 1px solid #cbd5e0 ;
+}
 .teamSection {
   margin-bottom: 40px;
+  /* border-top: 1px solid #cbd5e0 ; */
   /*height: 100%;*/
 }
 
