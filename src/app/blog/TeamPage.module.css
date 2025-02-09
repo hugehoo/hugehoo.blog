@@ -319,10 +319,14 @@
   position: relative;
   display: block;
   margin: 0 0 0 0;
-
   text-align: center;
-  /* border: 1px solid #333333; */
   height: 9cap;
+}
+
+@media screen and (max-width: 480px) {
+  .teamMember {
+    font-size: 1em;
+  }
 }
 
 .teamMember img {
