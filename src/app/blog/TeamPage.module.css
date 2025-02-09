@@ -141,6 +141,7 @@
 }
 
 .teamSection {
+  min-height: 75vh;
   margin-bottom: 40px;
 }
 
