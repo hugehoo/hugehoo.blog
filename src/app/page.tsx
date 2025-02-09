@@ -1,12 +1,11 @@
-import MainIntro from "@/components/ui/MainIntro";
-import MainBlog from "@/components/ui/MainBlog";
+import MainBlog from '@/components/ui/MainBlog';
 
 const Home = async () => {
   return (
     <>
-      <MainBlog/>
+      <MainBlog />
     </>
-  )
-}
+  );
+};
 
 export default Home;

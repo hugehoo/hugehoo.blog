@@ -1,9 +1,8 @@
-import MainBlog from '@/components/ui/MainBlog';
-
 const About = async () => {
   return (
     <>
-      <div className="p-3 min-h-[75vh] text-base font-normal text-gray-800">
+      <div className="p-2 min-h-[75vh] text-base font-normal text-gray-800">
+        {/* <div>{t('title')}</div> */}
         <div className="mb-5 text-2xl font-semibold">
           안녕하세요{' '}
           <span className="text-yellow-500 hover:text-yellow-600 transition-colors duration-300">

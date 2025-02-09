@@ -1,11 +1,10 @@
 import fs from 'fs';
 import path from 'path';
 import matter from 'gray-matter';
-import CardSection from "@/components/ui/CardSection";
-import styles from "@/app/blog/TeamPage.module.css";
-import {sync} from 'glob';
-import dayjs from "dayjs";
-
+import CardSection from '@/components/ui/CardSection';
+import styles from '@/app/blog/TeamPage.module.css';
+import { sync } from 'glob';
+import dayjs from 'dayjs';
 
 export interface CardInterface {
   title: string;
@@ -22,32 +21,29 @@ const getPosts = (): CardInterface[] => {
   const folder = '**';
   const postPaths: string[] = sync(`${POSTS_PATH}/${folder}/**/*.mdx`);
 
-  return postPaths.map(post => {
-    const file = fs.readFileSync(post, 'utf8');
-    const {data, content} = matter(file);
+  return postPaths
+    .map((post) => {
+      const file = fs.readFileSync(post, 'utf8');
+      const { data, content } = matter(file);
 
-    return {
-      title: data.title,
-      date: data.date,
-      thumbnail: data.thumbnail,
-      category: data.category,
-      summary : data.desc,
-      content: content,
-      open: data.open
-    }
-  })
+      return {
+        title: data.title,
+        date: data.date,
+        thumbnail: data.thumbnail,
+        category: data.category,
+        summary: data.desc,
+        content: content,
+        open: data.open,
+      };
+    })
     .sort((a, b) => dayjs(b.date).valueOf() - dayjs(a.date).valueOf());
-}
-
+};
 
 const MainBlog = () => {
   const posts = getPosts();
   return (
     <section className={styles.teamSection}>
-      <div className={styles.underlineTitle}>
-        Blog
-      </div>
-      <CardSection posts={posts}/>
+      <CardSection posts={posts} />
     </section>
   );
 };
