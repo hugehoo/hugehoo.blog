@@ -40,7 +40,7 @@ const PostMarkdown = ({ params }: Props) => {
               style={{
                 color: '#111',
                 fontSize: '2em',
-                margin: '2.5em 0 1em 0',
+                margin: '1.5em 0 1em 0',
               }}
               {...props}
             />
@@ -72,7 +72,7 @@ const PostMarkdown = ({ params }: Props) => {
               style={{
                 color: '#111',
                 fontSize: '1.4em',
-                margin: '2em 0 0.5em 0',
+                margin: '1em 0 0.5em 0',
               }}
               {...props}
             />
@@ -82,7 +82,7 @@ const PostMarkdown = ({ params }: Props) => {
               style={{
                 color: '#111',
                 fontSize: '1.2em',
-                margin: '2em 0 0.5em 0',
+                margin: '1em 0 0.5em 0',
               }}
               {...props}
             />

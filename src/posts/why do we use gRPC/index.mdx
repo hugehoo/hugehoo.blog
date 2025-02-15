@@ -1,0 +1,115 @@
+---
+title: 'why do we use gRPC'
+date: 2025-02-15
+desc: 그냥 http 쓰면 안돼요?
+thumbnail: /team-member-1.jpeg
+category: Go
+open: true
+---
+
+# Table of Contents
+
+1. Introduction to gRPC
+2. Why Use gRPC Over HTTP?
+3. Core Concepts of gRPC
+   - Protocol Buffers
+   - Service Definition
+   - Client and Server
+4. Setting Up gRPC in Your Project
+5. gRPC vs REST: A Detailed Comparison
+6. Real-World Use Cases of gRPC
+7. Performance Benefits of gRPC
+8. Security Considerations in gRPC
+9. Conclusion
+
+---
+
+구글에서 만든 rpc 프로토콜이다.
+what is RPC stands for?
+RPC stands for Remote Procedure Call.
+which is a protocol that one program can use to request a service from a program located in another computer without having to understand the network protocols.
+
+rest api 에서는 json 을 이용해 데이터를 주고받는다.
+json 은 널리 사용되는 표준이지만, 동일한 키가 반복되는 경우 대량의 데이터를 전송할 때 비효율적이다.
+
+하지만 grpc 에서는 protobuf 를 이용해 데이터를 주고받는다.
+protobuf 는 단순히 키만 간소화 한 것이 아니라, 데이터를 바이너리 현태로 직렬화하여 데이터를 전송한다.
+
+```markdown
+그런데 마이크로 서비스간에 json 으로 데이터를 주고받을 때도, json 을 직렬화하여 데이터를 전송하지 않나? protobuf 도 마찬가지로 직렬화 과정을 거치는데, 왜 protobuf 가 json 보다 데이터 전송시 이점을 갖는지 모르겠어.
+그렇다. 마이크로 서비스 간에 JSON으로 데이터를 주고받을 때도 JSON을 직렬화하여 데이터를 전송한다. 하지만 Protobuf는 JSON보다 더 효율적인 직렬화 형식을 제공한다. 그 이유는 다음과 같다:
+
+1. **크기**: Protobuf는 바이너리 형식으로 데이터를 직렬화하기 때문에, 동일한 데이터를 JSON으로 직렬화한 것보다 훨씬 더 작은 크기로 전송할 수 있다. 이는 네트워크 대역폭을 절약하고 전송 속도를 높이는 데 도움이 된다.
+
+2. **속도**: Protobuf는 직렬화 및 역직렬화 속도가 매우 빠르다. 이는 JSON의 텍스트 기반 직렬화보다 훨씬 더 효율적이다. 따라서 데이터 전송 및 처리 속도가 빨라진다.
+
+3. **스키마**: Protobuf는 명확한 스키마를 사용하여 데이터를 정의한다. 이는 데이터의 구조를 명확하게 하고, 데이터의 무결성을 보장하며, 버전 관리를 용이하게 한다. 반면, JSON은 스키마가 없기 때문에 데이터 구조가 불명확할 수 있다.
+
+4. **타입 안전성**: Protobuf는 강력한 타입 시스템을 제공하여 데이터의 타입을 명확하게 정의할 수 있다. 이는 데이터의 일관성을 유지하고, 타입 오류를 방지하는 데 도움이 된다. 반면, JSON은 타입 시스템이 약하기 때문에 타입 오류가 발생할 가능성이 있다.
+
+이러한 이유들로 인해 Protobuf는 JSON보다 데이터 전송 시 더 많은 이점을 제공한다.
+```
+
+protobuf 는 데이터를 직렬화하고 역직렬화하는 데 사용되는 프로토콜 버퍼 메시지 형식을 정의한다.
+gPRC 역시 http2 기반 프로토콜이다.
+(rsetful api 는 http1.1 사용. -> 편지를 쓴는것과 같다. 그런데 이제 클라이언트가 편지를 먼저 보내야만 답장이 오는 형식임. 서버가 먼저 편지를 쓸 일은 없다. 아주 비싼 남자, 아니 서버네 알파 서버ㄷㄷ 단방향 통신임)
+http2 는 전화를 쓰는것과 같다. -> 양방향으로 통신함.
+
+### tls : 데이터를 암호화하여 전송함
+
+웹 프론트엔드에서는 거의 사용되지 않는다. gPRC 에 필요한 http2 는 지원이 아직 부족하기 때문.
+가장 널리사용되는 곳은 msa.
+그럼 msa 에서는 grpc 사용하는 것이 정답인가? HTTP 보다 무조건 우위를 점하는가?
+
+---
+
+구글 내부에서 사용하던 기술을 오픈소스로 공개한것.
+
+## Q. 착각하기 쉬운 내용!
+
+### rest api 는 프레임워크가 아닌 하나의 스타일이다, 그럼 gRPC 도 rest api 스타일로 사용할 수 있는가?
+
+gRPC는 REST API 스타일로 사용할 수 없다. REST API는 HTTP 1.1을 기반으로 하여 리소스를 URI로 식별하고, HTTP 메서드(GET, POST, PUT, DELETE 등)를 사용하여 리소스를 조작하는 스타일이다. 반면, gRPC는 HTTP/2를 기반으로 하여 프로토콜 버퍼를 사용하여 데이터를 직렬화하고, 서비스와 메서드를 정의하여 원격 프로시저 호출을 수행하는 프레임워크이다.
+
+REST API와 gRPC는 서로 다른 철학과 설계 원칙을 가지고 있다. REST API는 리소스 중심의 접근 방식을 취하며, 클라이언트와 서버 간의 상호작용을 단순하고 일관되게 유지하려고 한다. 반면, gRPC는 서비스 중심의 접근 방식을 취하며, 고성능, 양방향 스트리밍, 강력한 타입 시스템 등을 제공하여 더 효율적이고 확장 가능한 통신을 가능하게 한다.
+
+따라서 gRPC는 REST API 스타일로 사용할 수 없으며, 두 가지는 서로 다른 용도와 요구사항에 맞게 선택하여 사용해야 한다.
+
+---
+
+흥미롭다, gRPC 프로토콜은 http2.0 사용을 규율로 지정하고, http api 는 어떤 http 버전을 사용해야 하는지 제약을 두지 않는다.
+
+### Q. kafka avro 도 protobuf 를 사용하는것으로 아는데, gPRC 와 어떤 관련이 있을까?
+
+### Rest Design Principles
+
+1. Client-Server Decoupling
+2. statelessness
+3. Uniform Interface
+4. Cacheabiliy
+
+stateless 면 다른 머신 노드를 통해 리퀘스트를 프로세스 할 수도 있다. 이게 진짜 장점이라고함.
+디버깅 버그를 고치느데도 스테이트리스가 유리하다 해당 리퀘스트만 보면 되니까.
+
+---
+
+실전! gRPC 서비스 운영 노하우
+
+-
+
+- gprc channel 이란게 있다.
+- Keepalive 기능도 가능함
+
+왜 사용하는걸까?
+어떤 장점이 있을까?
+개발자 생태계를 많이 지원한다는 장점이 있지만 사실 피부로 잘 와닿지 않는다.
+
+2가지 요인이 성능에 영향을 주는데, protobuf 와 http2 가 그것이다.
+
+http2 -> allows multiple streams of messages over a single long-lived TCP connection.
+it allows the grpc framework to hanlde many concurrent RPC calls over a small number of TCP connection.
+
+json 보다 5배 빠르다고 하는데 흠... 그게 실제로 서버 통신 속도가 5배 빨라지는걸로 체감할 수 있는지는 모르겠다.
+
+--
+우선 gRPC 의 이론적인 부분과 궁금증을 모조리 글로 쓰고, 다음 글은 코드로 grpc 서비스를 따라서 구현해보자.
