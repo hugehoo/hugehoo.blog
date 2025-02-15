@@ -62,7 +62,7 @@ const PostMarkdown = ({ params }: Props) => {
                 color: '#111',
                 fontSize: '1.6em',
                 fontWeight: '900',
-                margin: '0.7em 0 0.3em 0',
+                margin: '0.3em 0 0.5em 0',
               }}
               {...props}
             />
