@@ -78,7 +78,7 @@
   padding: 2px 4px;
   background: #f8e0e6;
   border-radius: 5px;
-  font-size: 0.9em;
+  font-size: 0.99em;
   font-weight: 600;
 }
 
@@ -87,8 +87,8 @@ code {
 }
 
 pre {
-  font-size: 0.9em;
-  border-radius: 7px; /* 모서리 둥글게 */
+  font-size: 0.95em;
+  border-radius: 11px; /* 모서리 둥글게 */
   overflow-x: auto; /* 코드가 길 경우 스크롤 */
   margin: 1.2em 0 1.2em 0;
 }

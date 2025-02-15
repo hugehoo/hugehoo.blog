@@ -72,6 +72,7 @@ const PostMarkdown = ({ params }: Props) => {
               style={{
                 color: '#111',
                 fontSize: '1.4em',
+                fontWeight: '600',
                 margin: '1em 0 0.5em 0',
               }}
               {...props}
@@ -82,6 +83,7 @@ const PostMarkdown = ({ params }: Props) => {
               style={{
                 color: '#111',
                 fontSize: '1.2em',
+                fontWeight: '600',
                 margin: '1em 0 0.5em 0',
               }}
               {...props}
@@ -123,16 +125,20 @@ const PostMarkdown = ({ params }: Props) => {
           ),
           strong: ({ node, ...props }) => (
             <strong
-              style={{ color: '#111', background: '#fff3b9' }}
+              style={{
+                color: '#111',
+                fontSize: '0.99em',
+                background: '#fff3b9',
+              }}
               {...props}
             />
           ),
           p: ({ node, ...props }) => (
             <p
               style={{
-                fontSize: '0.95em',
+                fontSize: '0.99em',
                 marginBottom: '0.5em',
-                lineHeight: '1.88em',
+                lineHeight: '1.81em',
               }}
               {...props}
             />
@@ -169,7 +175,7 @@ const PostMarkdown = ({ params }: Props) => {
             <blockquote
               style={{
                 color: '#555',
-                padding: '1em 1em 1em 1em',
+                padding: '0.7em 1em 0.7em 1em',
                 borderLeft: '4px solid #ccc',
                 backgroundColor: '#f9f9f9',
                 margin: '1em 0',

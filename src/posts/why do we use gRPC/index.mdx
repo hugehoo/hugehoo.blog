@@ -4,7 +4,7 @@ date: 2025-02-15
 desc: 그냥 http 쓰면 안돼요?
 thumbnail: /team-member-1.jpeg
 category: Go
-open: true
+open: false
 ---
 
 > ### Table of Contents
@@ -15,19 +15,159 @@ open: true
 >     - Protocol Buffers
 >     - Service Definition
 >     - Client and Server
-> 4.  Setting Up gRPC in Your Project
-> 5.  gRPC vs REST: A Detailed Comparison
-> 6.  Real-World Use Cases of gRPC
-> 7.  Performance Benefits of gRPC
-> 8.  Security Considerations in gRPC
-> 9.  Conclusion
+> 4.  gRPC vs REST: A Detailed Comparison
+> 5.  Real-World Use Cases of gRPC
+> 6.  Performance Benefits of gRPC
+> 7.  Security Considerations in gRPC
+> 8.  Conclusion
 
 ---
 
-구글에서 만든 rpc 프로토콜이다.
-what is RPC stands for?
-RPC stands for Remote Procedure Call.
-which is a protocol that one program can use to request a service from a program located in another computer without having to understand the network protocols.
+## 1. Introduction to gRPC
+
+gRPC which stands for **Google Remote Procedure Call** is a high-performance,
+open-source universal RPC framework.
+
+Google used this **framework** to communicate internally between their services and open-sourced it in 2015.
+This open-sourced project was accepted into the Cloud Native Computing Foundation (CNCF)
+as an incubating project in 2016 and became a graduated project in 2017.
+
+It is a framework that one program can use to request a service from a program located in another computer (or server)
+without having to understand the network protocols.
+You may ask why don't we just use HTTP instead of gRPC.
+There are **two key reasons** why gRPC is chosen over HTTP especially in microservices architecture.
+
+> 1. Built on Http2.0
+>
+>    - Http2.0 is more efficient than Http1.1. It supports multiplexing, which allows multiple streams of messages over a single **long-lived TCP connection**.
+>
+> 2. Protocol Buffers
+>
+>    - gRPC is built on Protocol Buffers, which is a binary serialization format.
+>    - Json serialization is text-based, so it is less efficient than binary serialization.
+
+## 2. Why Use gRPC Over HTTP?
+
+#### 1) Performance Benefits
+
+Since gRPC is actually uses http2.0, it has better performance than http1.1 which is used in REST API.
+It enables multiplexing that allows multiple parallel requests over a single TCP connection.
+Also the binary serialization of protobuf is way efficient than the text-based JSON serialization.
+
+#### 2) Schema Management
+
+Protobuf provides a strong type system that allows you to define the structure of your data.
+This enables you to catch type errors at compile time, rather than at runtime.
+
+```protobuf
+// user.proto
+syntax = "proto3";
+
+package user;
+
+enum UserRole {
+  MEMBER = 0;
+  ADMIN = 1;
+  MODERATOR = 2;
+}
+
+message User {
+  string id = 1;
+  string email = 2;
+  string name = 3;
+  int32 age = 4;
+  UserRole role = 5;
+  repeated string favorite_colors = 6;
+  google.protobuf.Timestamp created_at = 7;
+}
+
+message GetUserRequest {
+  string id = 1;
+}
+
+service UserService {
+  rpc CreateUser(User) returns (User);
+  rpc GetUser(GetUserRequest) returns (User);
+}
+
+```
+
+With this kind of strong-typed schema, you can catch type errors at compile time, rather than at runtime which can lead to unexpected errors.
+The benefit becomes even clearer when making changes to the schema.
+
+```go
+// ❌ Common mistakes that will be caught at compile time
+func createInvalidUser() {
+    user := &pb.User{
+        Id: 123,                    // Compiler error: cannot use 123 (type int) as type string
+        Age: "25",                  // Compiler error: cannot use "25" (type string) as type int32
+        Role: "ADMIN",             // Compiler error: cannot use "ADMIN" (type string) as type UserRole
+        FavoriteColors: "red",     // Compiler error: cannot use "red" (type string) as type []string
+    }
+}
+
+// ✅ Correct usage with proper types
+func createValidUser() *pb.User {
+    now := timestamppb.Now()
+
+    return &pb.User{
+        Id:             "usr_123",
+        Email:          "john@example.com",
+        Name:           "John Doe",
+        Age:            25,
+        Role:           pb.UserRole_ADMIN,
+        FavoriteColors: []string{"red", "blue"},
+        CreatedAt:      now,
+    }
+}
+
+// Example of using the generated service client
+func main() {
+    conn, err := grpc.Dial("localhost:50051", grpc.WithInsecure())
+    if err != nil {
+        log.Fatalf("failed to connect: %v", err)
+    }
+    defer conn.Close()
+
+    client := pb.NewUserServiceClient(conn)
+
+    user := createValidUser()
+    resp, err := client.CreateUser(context.Background(), user)
+    if err != nil {
+        log.Fatalf("failed to create user: %v", err)
+    }
+}
+```
+
+So when the schema changes:
+
+```go
+// Updated user.proto with new field
+message User {
+    // ... previous fields ...
+    bool is_verified = 8;  // New field added
+}
+```
+
+Golang code will enforce the schema changes.
+
+```go
+// Compiler will help you identify places where the new field should be handled
+func createVerifiedUser() *pb.User {
+    user := createValidUser()
+    user.IsVerified = true  // New field must be handled
+    return user
+}
+```
+
+Demonstrated in this Go example, Type safety is enforced by the Go compilier
+and schema evolution is handled gracefully with backward compatibility.
+
+![image.png](image.png)
+
+## 3. Core Concepts of gRPC
+
+### 1) Protocol Buffers
 
 rest api 에서는 json 을 이용해 데이터를 주고받는다.
 json 은 널리 사용되는 표준이지만, 동일한 키가 반복되는 경우 대량의 데이터를 전송할 때 비효율적이다.
@@ -55,7 +195,7 @@ gPRC 역시 http2 기반 프로토콜이다.
 (rsetful api 는 http1.1 사용. -> 편지를 쓴는것과 같다. 그런데 이제 클라이언트가 편지를 먼저 보내야만 답장이 오는 형식임. 서버가 먼저 편지를 쓸 일은 없다. 아주 비싼 남자, 아니 서버네 알파 서버ㄷㄷ 단방향 통신임)
 http2 는 전화를 쓰는것과 같다. -> 양방향으로 통신함.
 
-### tls : 데이터를 암호화하여 전송함
+## tls : 데이터를 암호화하여 전송함
 
 웹 프론트엔드에서는 거의 사용되지 않는다. gPRC 에 필요한 http2 는 지원이 아직 부족하기 때문.
 가장 널리사용되는 곳은 msa.
@@ -106,7 +246,7 @@ stateless 면 다른 머신 노드를 통해 리퀘스트를 프로세스 할 �
 
 2가지 요인이 성능에 영향을 주는데, protobuf 와 http2 가 그것이다.
 
-http2 -> allows multiple streams of messages over a single long-lived TCP connection.
+http2 -> allows multiple streams of messages over a single **long-lived TCP connection**.
 it allows the grpc framework to hanlde many concurrent RPC calls over a small number of TCP connection.
 
 json 보다 5배 빠르다고 하는데 흠... 그게 실제로 서버 통신 속도가 5배 빨라지는걸로 체감할 수 있는지는 모르겠다.
