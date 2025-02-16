@@ -71,7 +71,7 @@ const PostMarkdown = ({ params }: Props) => {
             <h4
               style={{
                 color: '#111',
-                fontSize: '1.4em',
+                fontSize: '1.3em',
                 fontWeight: '600',
                 margin: '1em 0 0.5em 0',
               }}
