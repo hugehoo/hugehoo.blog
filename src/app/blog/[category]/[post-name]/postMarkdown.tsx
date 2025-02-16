@@ -1,9 +1,19 @@
+'use client';
+
 import ReactMarkdown from 'react-markdown';
 import Image from 'next/image';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { oneDark } from 'react-syntax-highlighter/dist/cjs/styles/prism';
 import remarkGfm from 'remark-gfm';
 import rehypeRaw from 'rehype-raw';
+import TOC from '@/app/blog/toc';
+import React from 'react';
+
+const getHeadingText = (node: any) => {
+  return node!!.children[0] && 'value' in node!!.children[0]
+    ? (node!!.children[0] as any).value
+    : '';
+};
 
 const CodeBlock: React.FC<{ language: string; value: string }> = ({
   language,
@@ -29,44 +39,61 @@ interface Props {
 
 const PostMarkdown = ({ params }: Props) => {
   const { decodedTitle, content } = params;
+  const generateIdFromText = (text: string) => {
+    return text.replace(/\s+/g, '-').toLowerCase();
+  };
+
   return (
     <div>
+      <TOC content={content} />
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         rehypePlugins={[rehypeRaw]}
         components={{
-          h1: ({ node, ...props }) => (
-            <h1
-              style={{
-                color: '#111',
-                fontSize: '2em',
-                margin: '1.5em 0 1em 0',
-              }}
-              {...props}
-            />
-          ),
-          h2: ({ node, ...props }) => (
-            <h2
-              style={{
-                color: '#111',
-                fontSize: '1.8em',
-                fontWeight: '900',
-                margin: '1.5em 0 0.5em 0',
-              }}
-              {...props}
-            />
-          ),
-          h3: ({ node, ...props }) => (
-            <h3
-              style={{
-                color: '#111',
-                fontSize: '1.6em',
-                fontWeight: '900',
-                margin: '0.3em 0 0.5em 0',
-              }}
-              {...props}
-            />
-          ),
+          h1: ({ node, ...props }) => {
+            const headingText = getHeadingText(node);
+            return (
+              <h1
+                id={generateIdFromText(headingText)}
+                style={{
+                  color: '#111',
+                  fontSize: '2em',
+                  margin: '1.5em 0 1em 0',
+                }}
+                {...props}
+              />
+            );
+          },
+          h2: ({ node, ...props }) => {
+            const headingText = getHeadingText(node);
+            return (
+              <h2
+                id={generateIdFromText(headingText)}
+                style={{
+                  color: '#111',
+                  fontSize: '1.8em',
+                  fontWeight: '900',
+                  margin: '1.5em 0 0.5em 0',
+                }}
+                {...props}
+              />
+            );
+          },
+          h3: ({ node, ...props }) => {
+            const headingText = getHeadingText(node);
+            return (
+              <h3
+                id={generateIdFromText(headingText)}
+                style={{
+                  color: '#111',
+                  fontSize: '1.6em',
+                  fontWeight: '900',
+                  margin: '0.3em 0 0.5em 0',
+                }}
+                {...props}
+              />
+            );
+          },
           h4: ({ node, ...props }) => (
             <h4
               style={{
@@ -129,7 +156,7 @@ const PostMarkdown = ({ params }: Props) => {
                 color: '#111',
                 fontSize: '0.99em',
                 background:
-                  'linear-gradient(to top, #fff3b9 25%, transparent 50%)',
+                  'linear-gradient(to top, #fff3b9 30%, transparent 60%)',
                 // background: '#fff3b9',
               }}
               {...props}
