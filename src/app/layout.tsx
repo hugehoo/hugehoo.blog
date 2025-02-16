@@ -31,7 +31,7 @@ export default function RootLayout({
       lang="en"
       className={`${ibmPlexSansKr.variable} ${ibmPlexSans.variable}`}
     >
-      <title>Tech Blog Team Page</title>
+      <title>huge.hoo</title>
 
       <Head>
         <meta

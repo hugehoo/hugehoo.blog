@@ -40,7 +40,7 @@ const PostMarkdown = ({ params }: Props) => {
               style={{
                 color: '#111',
                 fontSize: '2em',
-                margin: '2.5em 0 1em 0',
+                margin: '1.5em 0 1em 0',
               }}
               {...props}
             />
@@ -62,7 +62,7 @@ const PostMarkdown = ({ params }: Props) => {
                 color: '#111',
                 fontSize: '1.6em',
                 fontWeight: '900',
-                margin: '0.7em 0 0.3em 0',
+                margin: '0.3em 0 0.5em 0',
               }}
               {...props}
             />
@@ -71,8 +71,9 @@ const PostMarkdown = ({ params }: Props) => {
             <h4
               style={{
                 color: '#111',
-                fontSize: '1.4em',
-                margin: '2em 0 0.5em 0',
+                fontSize: '1.3em',
+                fontWeight: '600',
+                margin: '1em 0 0.5em 0',
               }}
               {...props}
             />
@@ -82,7 +83,8 @@ const PostMarkdown = ({ params }: Props) => {
               style={{
                 color: '#111',
                 fontSize: '1.2em',
-                margin: '2em 0 0.5em 0',
+                fontWeight: '600',
+                margin: '1em 0 0.5em 0',
               }}
               {...props}
             />
@@ -123,16 +125,22 @@ const PostMarkdown = ({ params }: Props) => {
           ),
           strong: ({ node, ...props }) => (
             <strong
-              style={{ color: '#111', background: '#fff3b9' }}
+              style={{
+                color: '#111',
+                fontSize: '0.99em',
+                background:
+                  'linear-gradient(to top, #fff3b9 25%, transparent 50%)',
+                // background: '#fff3b9',
+              }}
               {...props}
             />
           ),
           p: ({ node, ...props }) => (
             <p
               style={{
-                fontSize: '0.95em',
+                fontSize: '0.99em',
                 marginBottom: '0.5em',
-                lineHeight: '1.88em',
+                lineHeight: '1.81em',
               }}
               {...props}
             />
@@ -169,7 +177,7 @@ const PostMarkdown = ({ params }: Props) => {
             <blockquote
               style={{
                 color: '#555',
-                padding: '1em 1em 1em 1em',
+                padding: '0.7em 1em 0.7em 1em',
                 borderLeft: '4px solid #ccc',
                 backgroundColor: '#f9f9f9',
                 margin: '1em 0',

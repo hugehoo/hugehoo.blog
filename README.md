@@ -1,9 +1,15 @@
 Todo
+
 - 도메인 사야징 룰루
 - Post routing
 - Post 서버에서 불러오기
 
+글감
+
+- [ ] ratelimiter 를 뚫을 수 있을까?
+
 ref
+
 - https://yoonminlee.com/
 - https://www.d5br5.dev/blog
 - https://junghyeonsu.com/posts/please-buy-the-blog-3/
