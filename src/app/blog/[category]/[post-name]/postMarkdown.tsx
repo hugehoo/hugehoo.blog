@@ -128,7 +128,9 @@ const PostMarkdown = ({ params }: Props) => {
               style={{
                 color: '#111',
                 fontSize: '0.99em',
-                background: '#fff3b9',
+                background:
+                  'linear-gradient(to top, #fff3b9 25%, transparent 50%)',
+                // background: '#fff3b9',
               }}
               {...props}
             />
