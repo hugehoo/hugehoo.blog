@@ -9,26 +9,26 @@ open: true
 
 ## 들어가는 글
 
-입사 2달차, 사내에서 마이크로서비스 통신시 gRPC 를 적극적으로 사용 중이고 당장은 아니지만 나도 곧 gRPC 를 다루게 될 것 같아 공부가 필요했다.
-그러던 중 서버팀 회의 시간에 동료분이 '어떤 internal API 를 작성할 때 http 를 사용할 것인지 gRPC 를 사용할 것인지' 의견을 묻는 일이 있었다.
-엥 내부 서비스간 통신이고, 기존 통신도 대부분 gRPC 를 사용하기에 당연히 gRPC 를 사용해야한다고 생각했는데, 정작 스스로도 http 와 gRPC 의 차이를 명확히 모르고 있었다.
-그간 어렴풋이만 알고있던 gRPC 개념과 내가 잘못알고 있던 지점, 평소에 막연한 궁금증으로 남겨놨던 gRPC 관련 질문들을 정리하고 해답해보고자 한다.
+입사 2달차, 사내에서 마이크로서비스 간 통신시 gRPC 를 적극적으로 사용 중이고, 당장은 아니지만 나도 곧 gRPC 를 다루게 될 것 같아 준비가 필요했다.
+그러던 중 서버팀 회의 시간에 동료분이 '어떤 internal API 를 개발할 때 http 를 사용할지 gRPC 를 사용할지' 의견을 묻는 일이 있었다.
+내부 서비스간 통신이고, 기존 통신도 대부분 gRPC 를 사용하고 있으니 당연히 gRPC 를 사용할 것으로 생각했는데, 정작 스스로도 어떤 기준으로 http 와 gRPC 를 선택할지 명확히 모르고 있었다.
+그간 어렴풋이 알고있던 gRPC 개념과 내가 잘못알고 있던 지점, 평소에 막연한 궁금증으로 남겨놨던 gRPC 관련 질문들을 정리하고 답해보려 한다.
 
 <br />
 
 ### Q. gRPC 는 어떻게 HTTP 보다 빨라질 수 있었는가
 
-첫 번째 질문은 어떻게 gRPC 는 HTTP 보다 빠를 수 있는가 였가.
-무엇이 둘 사이의 (압도적인) 속도 차이를 만들어 냈을까? <br/>
-우선 gRPC 는 프로토콜 이라기 보다 프레임워크라고 설명하는 것이 맞는데, 이 프레임워크가 선택한 대표적인 두 기술이 바로 **Protobuf** 와 **HTTP/2** 이다.
+왜 gRPC 는 HTTP 보다 빠른가? 무엇이 둘 사이의 (압도적인) 속도 차이를 만들었을까? <br/>
+우선 gRPC 는 프로토콜 이라기 보다 `프레임워크`라고 설명하는 것이 맞는데,
+이 프레임워크가 선택한 대표적인 기술이 바로 **Protobuf** 와 **HTTP/2** 이다.
 
-##### Protobuf
+##### **Protobuf**
 
-Protobuf 는 데이터 구조를 정의하는 언어로, gRPC 는 이 Protobuf 를 사용하여 데이터를 직렬화한다.
-_"Protobuf 를 사용한 직렬화는 뭐가 그리 특별한데!?"_ 라고 말할 수도 있는데 Protobuf 직렬화를 알아보기 전에 json 직렬화 방식부터 알아보자.
+Protobuf 는 데이터 구조를 정의하는 언어로, gRPC 는 Protobuf 를 사용하여 데이터를 직렬화한다. <br/>
+_"Protobuf 를 사용한 직렬화가 뭐 그리 특별한데!?"_ 라고 말할 수도 있는데 Protobuf 직렬화를 알아보기 전에 우선 json 직렬화 방식부터 알아보자.
 
-아래 같은 데이터가 있을 때, json 직렬화시 각 객체의 필드명의 모두 직렬화 대상에 포함되어 결국 중복되는 데이터가 직렬화된다.
-이는 곧 데이터 크기가 커지는 결과를 초래하고, 나아가 데이터 전송 시간에도 영향을 미칠 수 있다.
+야래 json 데이터를 직렬화하면 각 객체의 중복되는 필드명이 모두 직렬화 대상에 포함된다.
+이는 곧 중복 데이터로 인해 인코딩 데이터의 크기가 커지는 결과를 초래하고, 나아가 데이터 전송 시간에도 영향을 미칠 수 있다.
 
 ```json
 [
@@ -44,10 +44,10 @@ _"Protobuf 를 사용한 직렬화는 뭐가 그리 특별한데!?"_ 라고 말�
 ]
 ```
 
-반면 Protobuf 는 중복되는 필드명 대신 `필드 번호`만 포함하여 메시지를 직렬화한다. 이 때문에 직렬화시 데이터 크기를 줄일 수 있어 더 빠른 전송을 가능케한다.
-필드명만 차이를 만들어낼까? 그렇지 않다. 애초에 압도적인 퍼포먼스를 내는 요인은 단순히 중복된 필드를 배제하는 것이 아닌 **직렬화의 산출물**이다.
+반면 Protobuf 는 중복되는 필드명 대신 `필드 번호`만 포함하여 메시지를 직렬화하고 이로 인해 직렬화시 데이터 크기를 줄일 수 있어 더 빠른 전송을 가능케한다.
+필드명 중복 제거만 차이를 만들어낼까? 그렇지 않다. 애초에 압도적인 퍼포먼스의 요인은 단순히 중복된 필드를 배제하는 것이 아닌 **직렬화의 산출물**에 있다.
 
-Protobuf 는 객체를 바이너리 데이터로 직렬화하는 반면, json 은 문자열로 직렬화한다. 코드로 설명하면 아래와 같다.
+Protobuf 는 객체를 **Binary data**로 직렬화하는 반면, json 은 **문자열**로 직렬화한다. 코드로 설명하면 아래와 같다.
 
 <br />
 
@@ -58,8 +58,8 @@ Protobuf 는 객체를 바이너리 데이터로 직렬화하는 반면, json �
 const jsonString = JSON.stringify({ name: 'John', age: 30 });
 ```
 
-jsonString 은 `'{"name":"John","age":30}'` 순수 문자열로 직렬화 되는데, 모든 속성명과 값이 문자열로 직렬화 된다.
-객체가 클 수록 당연히 직렬화된 문자열된 크기도 커진다.당연히 비용이다.
+jsonString 은 순수 문자열(`'{"name":"John","age":30}'`)로 직렬화 되는데, 모든 속성명과 값이 문자열로 직렬화 된다.
+객체가 클수록 당연히 직렬화된 문자열의 크기도 커지고 이는 당연히 성능과 직결된다.
 
 <br />
 
@@ -73,9 +73,18 @@ message.setAge(30);
 const binaryData = message.serializeBinary();
 ```
 
-반면 Protobuf 는 사람이 알아볼 수 없는 `바이너리 데이터`로 직렬화되는데 당연히 데이터 크기가 훨씬 작아진다.
-단순히 바이너리 데이터 자체의 크기가 작은 점도 있지만, 필드명 대신 숫자 기반의 필드 태그(ex: `1`, `2`)를 사용하는 점도
-메타 데이터가 적어 전체적인 데이터 크기를 줄이는 요인이 된다.
+반면 Protobuf 는 사람이 알아볼 수 없는 `바이너리 데이터`로 직렬화되는데 당연히 데이터 크기가 훨씬 작아진다. <br/>
+바이너리 데이터 자체의 크기가 작은 점도 있지만, 필드명 대신 숫자 기반의 필드 태그(ex: `1`, `2`)를 사용하는 점도
+저장해야 할 메타 데이터가 줄여 전체적인 데이터 크기를 줄이는 요인이 된다.
+
+```protobuf
+syntax = "proto3";
+
+message Person {
+  string name = 1;
+  int32 age = 2;
+}
+```
 
 <br />
 
@@ -83,44 +92,58 @@ const binaryData = message.serializeBinary();
 비용이 상대적으로 낮다. 아무래도 텍스트 포맷은 사람이 읽기 쉬운 구조다보니 문자열 처리 비용이 추가되어 오버헤드가 발생하는 건 아닐까 생각도 든다.
 결국 이러한 차이가 두 방식의 속도 차이를 4배까지 만들어 낸다.
 
-다시 말하지만 protobuf 는 언어이기 때문에 개발자가 원하는 방식으로 데이터나 메서드, 서비스 등을 정의할 수 있다.
-
-> Protocol buffers are Google’s **language-neutral**, platform-neutral, extensible mechanism for **serializing structured data**
-> – think XML, but smaller, faster, and simpler. You define how you want your data to be structured once,
-> then you can use special generated source code to easily write and read your structured data to and
-> from a variety of data streams and using a variety of languages. [- protobuf documentation](https://protobuf.dev/)
-
-공식문서 언급대로, protobuf 는 데이터 구조를 정의하는 언어이다. 근데 이제 언어 중립적인 특징을 곁들인. 즉 개발하고자 하는 서버가
-Java 로 되어있던, Go 로 되어있던 상관없이 데이터 구조를 정의할 수 있다. like this yo
+다시 말하지만 protobuf 는 언어이기 때문에 개발자가 원하는 방식으로 `데이터`, `메서드`, `서비스` 등을 정의할 수 있다.
 
 ```protobuf
+service PersonService {
+  rpc GetPerson (PersonRequest) returns (PersonResponse);
+  rpc CreatePerson (Person) returns (PersonResponse);
+}
+
 message Person {
+  optional string name = 1;
+  optional int32 id = 2;
+  optional string email = 3;
+}
+
+message PersonRequest {
+  int32 id = 1;
+}
+
+message PersonResponse {
   optional string name = 1;
   optional int32 id = 2;
   optional string email = 3;
 }
 ```
 
-이렇게 정의한 데이터 구조는 다양한 언어로 생성된 코드에서 사용할 수 있다. 실제로 Protobuf 는
-C++, C#, Dart, Go, Java, JS/TS, Kotlin, Objective-C, Python, PHP, and Ruby 언어를 지원한다. (이 중 독자님이 사용하는 언어 하나는 있겠지!)
+> Protocol buffers are Google’s **language-neutral**, platform-neutral, extensible mechanism for **serializing structured data**
+> – think XML, but smaller, faster, and simpler. You define how you want your data to be structured once,
+> then you can use special generated source code to easily write and read your structured data to and
+> from a variety of data streams and using a variety of languages. [- protobuf documentation](https://protobuf.dev/)
+
+공식문서 언급대로, protobuf 는 데이터 구조를 정의하는 언어다. 근데 이제 언어 중립적인 특징을 곁들인. <br/>
+즉 개발하고자 하는 서버가 Java 로 되어있던, Go 로 되어있던 상관없이 데이터 구조를 정의할 수 있다.
+실제로 Protobuf 는 C++, C#, Dart, Go, Java, JS/TS, Kotlin, Objective-C, Python, PHP, and Ruby 언어를 지원한다. (이 중 독자님이 사용하는 언어 하나는 있겠지!)
 
 <br />
 
-##### Http2.0
+##### **Http2.0**
 
 REST API 는 http1.1 을 사용하지만, gRPC 는 http2.0 위에서 동작한다.
 아무래도 2.0 버전이라 1.1 보다 빠른가? 라고 생각할 수도 있지만, http 2.0 에서 동작하는 gRPC 가 빠른 이유는 다음과 같다.
 
 - **Multiplexing** : http2.0 의 가장 큰 특징은 `멀티플렉싱` 으로 하나의 TCP 연결에서 여러 개의 스트림(stream)을 동시에 처리할 수 있다.
-  1.1 에서는 하나의 요청이 완료되기 전까지 다음 요청을 처리할 수 없는 직렬 처리 방식으로 이를 해결하기 위해 브라우저는 여러 개의 TCP 연결을
+  1.1 버전은 하나의 요청이 완료되기 전까지 다음 요청을 처리할 수 없는 직렬 처리의 한계가 있다. 이를 해결하기 위해 브라우저는 여러 개의 TCP 연결을
   병렬로 열었지만, 이는 네트워크 및 서버 리소스를 낭비하는 결과를 초래했다.
-  반면 2.0 에서는 하나의 TCP 연결 내에서 여러 개의 스트림을 동시에 열어 병렬로 여러 요청을 주고받을 수 있는 `멀티플렉싱`을
+  반면 2.0 에서는 하나의 TCP 연결 내에서 여러 개의 스트림을 동시에 열어 병렬로 요청을 주고받을 수 있는 `멀티플렉싱`을
   제공하는데, 여러 개의 RPC 호출을 단일 연결에서 동시에 처리할 수 있어 이는 성능 개선으로 이어진다.
-- **Header Compression** : HTTP2.0 은 HPACK(Header Compression for HTTP/2)알고리즘을 사용하여 중복되는 헤더를 압축하고, 변화가 있는 헤더만 전송한다.
+- **Header Compression** : HTTP2.0 은 `HPACK` 알고리즘을 사용하여 중복되는 헤더를 압축하고, 변화가 있는 헤더만 전송한다.
   gRPC 는 이 기능을 활용하여 헤더 크기를 최소화하고 네트워크 대역폭을 크게 절약해 성능상 우위를 점한다.
 
 이외에도 http2 의 여러 특징이 있지만, gRPC 의 성능을 높이는 주요 요인은 위 2가지로 정리할 수 있다.
 
+<br />
 <br />
 
 ### Q. gRPC 는 어떻게 다른 서버의 함수를 호출할 수 있는걸까?
@@ -130,7 +153,7 @@ gRPC는 원격 프로시저 호출(Remote Procedure Call, RPC) 프레임워크�
 
 <br />
 
-<b>1. Protocol Buffers(proto) 기반 인터페이스 정의</b>
+<b>1. Protobuf(proto) 기반 인터페이스 정의</b>
 
 gRPC에서는 서비스와 함수의 인터페이스를 `.proto` 파일로 정의한다. 예를 들어, 아래와 같이 `Greeter` 서비스와
 `SayHello` 메서드를 정의할 수 있다.
@@ -151,7 +174,7 @@ message HelloReply {
 }
 ```
 
-이 `.proto` 파일을 기반으로 gRPC는 클라이언트와 서버의 `Stub` 코드를 자동으로 생성한다.
+이 `.proto` 파일을 기반으로 gRPC는 클라이언트와 서버에 `Stub` 코드를 자동으로 생성한다.
 중요한 건 `.proto` 파일을 클라이언트와 서버 모두에게 공유해야 한다는 점이다.
 
 <br />
@@ -159,7 +182,11 @@ message HelloReply {
 <b>2. stub 을 이용한 원격 함수 호출</b>
 
 - **서버(Server)** : 실제 구현을 작성하여 다른 클라이언트가 호출할 수 있도록 서비스 제공
+  - 위 `.proto` 파일에선 `SayHello` 메서드를 정의만 했을 뿐, 해당 함수가 어떻게 동작하는지는 실제 구현은 알 수 없다.
+  - 즉 함수의 실제 구현은 **서버(역할을 하는) 쪽**에서 구현하여 다른 클라이언트가 호출할 수 있도록 제공하는 것이다.
 - **클라이언트(Client)** : 생성된 `Stub`을 사용하여 원격 함수를 호출
+  - 여기서 말하는 stub 이란, gRPC 클라이언트에서 서버의 원격 함수를 호출할 수 있도록 생성된 코드를 의미한다.
+    즉, 클라이언트가 직접 서버의 함수를 호출하는 것이 아니라, Stub을 통해 원격 함수 호출(RPC, Remote Procedure Call)을 수행하는 것이다.
 
 ##### 서버 코드
 
@@ -168,6 +195,7 @@ type greeterServer struct {
   pb.UnimplementedGreeterServer
 }
 
+// 실제 함수 구현
 func (s *greeterServer) SayHello(ctx context.Context, req *pb.HelloRequest) (*pb.HelloReply, error) {
   return &pb.HelloReply{Message: "Hello " + req.Name}, nil
 }
@@ -186,37 +214,35 @@ response, _ := client.SayHello(context.Background(), &pb.HelloRequest{Name: "Ali
 fmt.Println(response.Message) // "Hello Alice"
 ```
 
-이렇게 클라이언트는 서버의 함수를 호출하듯이 원격 함수를 호출할 수 있다.
+이렇게 클라이언트는 자신의 함수를 호출하듯이 원격 함수를 호출할 수 있다.
 
-정리하면 .proto 파일을 정의하여 서비스와 메서드 구조를 지정하고 gRPC 가 해당 .proto 를 기반으로 Stub 코드를 생성하여
-클라이언트와 서버에서 사용할 수 있게 한다.
+정리하면 `.proto` 파일에서 서비스와 메서드 구조를 정의하고 gRPC 가 해당 `.proto` 를 기반으로 Stub 코드를 생성하여
+클라이언트와 서버에서 사용할 수 있게 하는 것이다.
 
 <br />
 
 ### Q. gRPC 와 REST API 는 어떤 차이가 있을까?
 
-REST API 는 하나의 Design Principle 이지 프레임워크가 아니다.
-반면 gRPC 는 프레임워크이기 때문에 REST 형식의 디자인 법칙을 채택하여 API 통신을 할 수 있지 않을까 생각이 들었다.
+REST API 는 하나의 **Design Principle 이지 프레임워크가 아니다.**
+반면 gRPC 는 프레임워크이기 때문에 REST 형식의 디자인 법칙을 채택하여 API 통신을 할 수 있지 않을까 의문이 들었다.
 
 <b>하지만!</b> REST API와 gRPC는 각각 다른 접근 방식을 가진 통신 방식이다.
 
-REST API는 Representational State Transfer의 약자로,
-HTTP 기반의 리소스 중심 아키텍처를 따르는 디자인 원칙으로 특정한 구현 방식이나 기술 스택에 종속되지 않으며 JSON, XML 등 다양한 포맷을 사용해 데이터를 주고받을 수 있다.
-하지만 `HTTP/1.1`을 주로 사용하기 때문에 헤더 오버헤드가 크고, 성능 최적화 측면에서 한계가 있다.
+`REST API`(Representational State Transfer)는 HTTP 기반의 리소스 중심 아키텍처를 따르는 디자인 원칙으로 특정한 구현 방식이나
+기술 스택에 종속되지 않으며 JSON, XML 등 다양한 포맷을 사용해 데이터를 주고받을 수 있다.
+하지만 **HTTP/1.1**을 주로 사용하기 때문에 헤더 오버헤드가 크고, 성능 최적화 측면에서 한계가 있다.
 
-반면, gRPC는 _(Google이 개발한)_ 프레임워크로, HTTP/2를 기반으로 동작하며
-**Protocol Buffers** 를 직렬화 포맷으로 사용한다.
+반면, `gRPC`는 _(Google이 개발한)_ 프레임워크로, **HTTP/2** 기반으로 동작하며 **Protocol Buffers** 를 직렬화 포맷으로 사용한다.
 이를 통해 데이터 크기를 줄이고 성능을 극대화할 수 있다. 또한 스트리밍 기능, 다중 요청 처리, 자동 코드 생성 등의 기능을 지원하여 MSA 환경에서 고성능 API 통신을 가능케 한다.
 
-<br />
+이러한 차이에도 불구하고, **gRPC는 RESTful 디자인 원칙을 일부 적용할 수 있다.** <br/>
+예를 들어 gRPC API에서 **리소스 기반의 엔드포인트**를 정의하고, HTTP/2 기반의 요청을 **RESTful**한 방식으로 구성할 수도 있다.
 
-이러한 차이점에도 불구하고, **gRPC는 RESTful 디자인 원칙을 일부 적용할 수 있다.** <br/>
-예를 들어, gRPC API에서 **리소스 기반의 엔드포인트**를 정의하고, HTTP/2 기반의 요청을 RESTful한 방식으로 구성할 수도 있다.
-그러나 본질적으로 gRPC는 메시지 기반의 RPC(Remote Procedure Call) 방식이기 때문에
-REST API처럼 리소스 중심의 CRUD 패턴을 따르기보다는 함수 호출 중심의 API 설계를 하는 것이 본래의 의도대로 기술을 사용하는 것이다.
+그러나 본질적으로 gRPC는 메시지 기반의 RPC(Remote Procedure Call) 방식이므로
+REST API처럼 리소스 중심의 CRUD 패턴을 따르기보다, 함수 호출 중심의 API 설계를 하는 것이 본래 의도에 맞게 기술을 사용하는 것이다.
 
-즉, gRPC는 REST API의 디자인 원칙을 어느 정도 차용할 수 있지만
-RESTful한 방식 그대로 구현하는 것은 gRPC의 강점을 충분히 살리지 못할 수 있다.
+즉 **gRPC 도 REST API의 디자인 원칙을 어느 정도 차용할 수 있지만**
+RESTful한 방식대로 구현하는 것은 gRPC의 강점을 충분히 살리지 못할 수 있다.
 상황에 따라 REST API와 gRPC를 적절히 선택하는 것이 중요하다.
 
 <br />
@@ -224,20 +250,64 @@ RESTful한 방식 그대로 구현하는 것은 gRPC의 강점을 충분히 살�
 ### Q. 그럼 msa 내부 통신에서는 무조건 gRPC 를 써야하나?
 
 gRPC 의 성능이 rest api 보다 빠르긴 하겠지만 **무조건** protobuf 만 써야한다고 생각하진 않는다. (개발 세상에 무조건 이란게 있긴한가?)
-MSA Internal 통신에서는 use case 에 따라 적절한 방식을 선택해야한다.
-어떤 경우에 gRPC 를 사용하면 좋을까? <br/>
+MSA Internal 통신에서는 use case 에 따라 적절한 방식을 선택해야 하는데 어떤 경우에 gRPC 를 사용하면 좋을까? <br/>
 
 <br />
 
 우선 **성능이 중요한 경우**, 예를 들어 트래픽이 많고 응답속도가 중요한 경우엔
 gRPC 를 선택하는 것이 좋다. 또한 **서로 다른 언어로 개발된 서비스 간** 공통
-인터페이스 (protobut IDL) 을 통해 통신하는 경우에도 gRPC 를 선택하는 것이 좋다.
-서로 다른 언어로 개발된 서버 간 통신은 REST API(JSON) 로도 가능하지 않냐고? 물론
-가능하지만, gRPC 를 사용하는게 더 유리한 이유가 있다.
+인터페이스 (protobut IDL) 를 통해 통신하는 경우에도 gRPC 를 선택하는 것이 좋다.
+서로 다른 언어로 개발된 서버 간 통신은 REST API(JSON) 로도 가능하지 않냐고? 물론 가능하지만, gRPC 를 사용하는게 더 유리한 이유가 있다.
 
-가령 Go 서버와 Python 서버 간 통신하는 경우를 생각해보자.
-REST API 로 통신하는 경우 JSON 은 텍스트 기반이라 파싱하는 시간이 오래 걸리고, 직렬화된 데이터의 크기 역시 적지 않을 수 있다.
-반면 gRPC 는 바이너리 기반이라 크기도 작기 때문에 서버간 통신시 네트워크 대역폭도 절약과 성능 향상까지 노려볼 수 있다.
+언어별 데이터 타입 차이를 생각해보자.
+REST API 를 사용할 경우, 서버-클라이언트 간 데이터 교환은 JSON 형식을 기반으로 한다.
+JSON은 기본적으로 string, number, boolean, array, object 등의 타입을 제공하지만, 언어별로 데이터 타입의 차이가 존재할 수 있다.
+예를 들어, JavaScript의 number는 정수와 실수를 자동 변환하지만, Go의 int는 별도 변환 과정이 필요하다.
+null 값 처리도 언어마다 차이가 있어 예외 처리가 필요하다.
+
+##### 1. JavaScript에서의 number 처리
+
+JavaScript에서는 number 타입이 정수와 실수를 자동으로 변환하며, 별도의 int 타입이 없다.
+
+```js
+// JavaScript에서는 정수와 실수가 같은 'number' 타입
+const jsonData = '{"value": 42}'; // JSON 데이터 (정수)
+
+const parsedData = JSON.parse(jsonData);
+console.log(typeof parsedData.value); // "number"
+
+const floatJsonData = '{"value": 42.5}'; // JSON 데이터 (실수)
+const parsedFloatData = JSON.parse(floatJsonData);
+console.log(typeof parsedFloatData.value); // "number"
+```
+
+정수(42)든 실수(42.5)든, JavaScript에서는 모두 number로 자동 변환된다.
+
+##### 2. Go에서 JSON의 number 처리
+
+Go에서는 정수(int)와 실수(float64)가 명확히 구분되며, JSON 데이터의 타입에 따라 변환이 필요하다.
+
+```go
+
+type Data struct {
+	Value int `json:"value"`
+}
+
+func main() {
+	jsonData := `{"value": 42.5}` // JSON에서 실수 값을 보냄
+
+	var data Data
+	err := json.Unmarshal([]byte(jsonData), &data) // Go에서 JSON을 파싱
+	if err != nil {
+		fmt.Println("Error:", err) // JSON 파싱 실패 (cannot unmarshal number 42.5 into Go struct field Data.value of type int)
+	} else {
+		fmt.Println("Parsed value:", data.Value)
+	}
+}
+```
+
+<br />
+<br />
 
 두번째는 **자동 코드 생성(stub)** 지원 기능인데, 이는 서는 다른 언어로 개발된 서버 간 통신에서 특히 유용하다.
 gRPC는 `.proto` 파일 하나만 있으면 자동으로 서버와 클라이언트 코드를 생성할 수 있다.
