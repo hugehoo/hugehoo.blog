@@ -105,3 +105,36 @@ pre {
 .language-bash.hljs .hljs-string {
   color: #50a14f;
 }
+
+.toc {
+  background-color: #f9f9f9;
+  padding: 1em;
+  border-left: 0.4em solid #ccc;
+  border-radius: 0.4em;
+  margin-bottom: 3em;
+}
+
+.toc h3 {
+  font-size: 1.6em;
+  font-weight: 900;
+  margin-bottom: 0.5em;
+}
+
+.toc ul {
+  padding: 0 0 0 2em;
+  list-style-type: disc;
+}
+
+.toc li {
+  margin-bottom: 0.5em;
+}
+
+.toc a {
+  color: #3498db;
+  text-decoration: none;
+}
+
+.toc a:hover {
+  text-decoration: underline;
+  font-weight: bold;
+}
