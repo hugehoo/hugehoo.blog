@@ -1,20 +1,26 @@
-import React, { useEffect, useState } from 'react';
+import React, {useEffect, useState} from 'react';
 
 interface TOCProps {
   content: string;
 }
 
+type matchTitle= {
+  index: number
+  title: string
+}
+
 const TOC = ({ content }: TOCProps) => {
-  const [toc, setToc] = useState<string[]>([]);
-
+  const [toc, setToc] = useState<matchTitle[]>([]);
   useEffect(() => {
-    const headings: string[] = [];
+    const headings: matchTitle[] = [];
     const regex = /^(#{1,3})\s(.+)$/;
-
     content.split('\n').forEach((line) => {
       const match = regex.exec(line);
       if (match) {
-        headings.push(match[2]);
+        headings.push({
+          index: match[1].length,
+          title: match[2]
+        });
       }
     });
 
@@ -34,21 +40,23 @@ const TOC = ({ content }: TOCProps) => {
   return (
     <div className="toc">
       <h3>Table of Contents</h3>
-      <ul>
+      <ul className="list-disc list-inside">
         {toc.map((heading, index) => {
-          const id = heading.replace(/\s+/g, '-').toLowerCase(); // id 형식 맞추기
+          const id = heading.title.replace(/\s+/g, '-').toLowerCase(); // id 형식 맞추기
+          const paddingClass = heading.index === 3 ? "pl-4" : ""; // index가 3일 때만 padding 적용
+
           return (
-            <li key={index}>
-              <a
-                href={`#${id}`}
-                onClick={(e) => {
-                  e.preventDefault();
-                  scrollToHeading(id); // 스크롤 이동
-                }}
-              >
-                {heading}
-              </a>
-            </li>
+              <li key={heading.title} className={paddingClass}>
+                <a
+                    href={`#${id}`}
+                    onClick={(e) => {
+                      e.preventDefault();
+                      scrollToHeading(id); // 스크롤 이동
+                    }}
+                >
+                  {heading.title}
+                </a>
+              </li>
           );
         })}
       </ul>
