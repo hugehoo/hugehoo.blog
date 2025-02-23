@@ -32,7 +32,7 @@ const TOC = ({ content }: TOCProps) => {
     if (element) {
       element.scrollIntoView({
         behavior: 'smooth',
-        block: 'start', // 제목이 뷰포트 상단에 오도록 설정
+        block: 'start',
       });
     }
   };
@@ -51,7 +51,7 @@ const TOC = ({ content }: TOCProps) => {
                     href={`#${id}`}
                     onClick={(e) => {
                       e.preventDefault();
-                      scrollToHeading(id); // 스크롤 이동
+                      scrollToHeading(id);
                     }}
                 >
                   {heading.title}
