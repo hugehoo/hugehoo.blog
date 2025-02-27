@@ -1,7 +1,7 @@
 ---
 title: 'Opensource 컨트리뷰트 첫 시도'
 date: 2025-02-23
-desc: 아직 머지됐다고는 안했다..
+desc: 누구나 컨트리뷰션 할 수 있다며!!
 thumbnail: /team-member-1.jpeg
 category: memoir
 open: true
@@ -36,7 +36,7 @@ yorkie codebase 에 이미 connectRPC 가 gRPC 의 대체재로 도입되었지�
 
 ![image2.png](./image2.png)
 
-<br/>
+<br />
 
 ## 2. 삽질하기 싫으면 공식문서 읽자
 
@@ -45,6 +45,8 @@ yorkie codebase 에 이미 connectRPC 가 gRPC 의 대체재로 도입되었지�
 다시 공식문서로 되돌아갔습니다. 처음부터 공식문서를 잘 읽었다면 겪지 않아도 될 문제들이었습니다.
 
 <br />
+
+![image8.png](./image8.png)
 
 예를 들어 `yorkie login` cli 명령을 입력하면 config.json 이란 파일이 자동으로 생성되지만, 공식문서를 제대로 읽지 않고
 `yorkie project create [project-name]` 만 실행한 저는 당연히 config.json 이란 파일을 찾을 수 없다는 에러 메시지를 마주했습니다.
@@ -61,52 +63,132 @@ yorkie codebase 에 이미 connectRPC 가 gRPC 의 대체재로 도입되었지�
 <br />
 
 ## 3. 무엇을 바꾸었나.
+
 앞서 설명했듯 gRPC 를 connectRPC 로 대체하고 gRPC 디펜던시를 codebase 에서 제거하는 것이 해당 이슈의 목표였습니다.
 프로젝트 전체에서 gRPC 의존성을 없애야 한다는 기조가 있었지만, 우선은 이슈 설명에 명시된 `create.go` 파일부터 작업하는 것을 목표로 했습니다.
 
 기존 코드에서 gRPC 의 흔적은 **project create** 커맨드에서 에러가 발생했을 때 해당 에러를 `converting`하는 메서드였습니다.
 에러를 status, error details 등으로 변환하는 gRPC 메서드였는데, connectRPC 에도 비슷한 역할을 하는 함수가 있어 해당 함수로 변경하는 작업을 거쳤습니다.
 이슈 설명에는 **connectRPC 패키지의 에러를 사용**하거나 **자체 custom 에러 타입을 생성**하라고 나와있었는데, 우선은 첫 번째 방법을 선택했습니다.
+
 ![image4.png](./image4.png)
 
 <br />
 
+##### 기존 코드
+
+err 를 convert 하는 함수가 gRPC 패키지의 메서드로,
+yorkie 는 gRPC 대신 connectrpc 를 사용하므로 convert 함수를 제거하기로 합니다.
+
+```go
+import (
+    ...
+    "google.golang.org/grpc/status" // dependent on gRPC
+)
+
+...
+
+    project, err := cli.CreateProject(ctx, name)
+			if err != nil {
+				// TODO(chacha912): consider creating the error details type to remove the dependency on gRPC.
+				st := status.Convert(err)
+				for _, detail := range st.Details() {
+					switch t := detail.(type) {
+					case *errdetails.BadRequest:
+						for _, violation := range t.GetFieldViolations() {
+							cmd.Printf("Invalid Fields: The %q field was wrong: %s\n", violation.GetField(), violation.GetDescription())
+						}
+					}
+				}
+				return err
+			}
+```
+
+<br />
+
+##### 변경 코드
+
+기존에는 gRPC 패키지의 메서드를 이용해 에러 상태를 변환했다면,
+이제 connectrpc 패키지의 함수로 에러를 컨버팅하여 gRPC 의존성을 제거할 수 있었습니다.
+생각보다 개선할 사항이 적어 빠르게 PR 도 올릴 수 있었습니다.
+
+```go
+
+import (
+    ...
+    "connectrpc.com/connect" // replace with connectRPC
+)
+
+        ...
+			project, err := cli.CreateProject(ctx, name)
+			if err != nil {
+				var connErr *connect.Error
+				if errors.As(err, &connErr) {
+					for _, detail := range connErr.Details() {
+						value, err := detail.Value()
+						if err != nil {
+							continue
+						}
+
+						badReq, ok := value.(*errdetails.BadRequest)
+						if !ok {
+							continue
+						}
+
+						for _, violation := range badReq.GetFieldViolations() {
+							cmd.Printf("Invalid Field: %q - %s\n", violation.GetField(), violation.GetDescription())
+						}
+					}
+				}
+				return err
+			}
+
+        ...
+```
+
+<br />
+
 ## 4. 코드 리뷰 반영
-3일 정도가 지나서 코드 리뷰 코멘트가 달렸고 넘 신나서 퇴근하자마자 책상에 앉아 리뷰 반영했다.
-기존에 내가 올린 커밋은 `create.go` 하나의 파일에서만 gRPC dependency 를 제거한 상황이었는데, 전체 코드베이스를 봤을 때 `update.go` 에도 여전히 gRPC 코드가 남아있었다.
-리뷰어 분의 코멘트에 따라 우선 애플리케이션 코드 (test 코드 제외) 에서만 종속성을 제거하기로 하여 create.go 와 마찬가지로 update.go 도 동일하게 작업을 진행했다.
-사실상 거의 동일한 구조라 빠르게 작업할 수 있었다.
+
+3일 정도 지나서 코드 리뷰 코멘트가 달린 것을 보고 퇴근하자마자 책상에 앉아 리뷰 반영을 시작했습니다.
+기존에 올린 커밋은 `create.go` 파일에서만 gRPC dependency 를 제거했는데 전체 코드베이스로 볼 때 `update.go` 에도 여전히 gRPC 코드가 남아있어 추가 제거가 필요했습니다.
+리뷰어의 코멘트에 따라 애플리케이션 코드 (test 코드 제외) 에서만 종속성을 제거하는 것으로 결정되어 create.go 와 마찬가지로 update.go 도 동일하게 작업을 진행했습니다.
+
 ![image5.png](./image5.png)
 
-<br/>
+<br />
 
-update.go 뿐만 아니라 ci 관련 파일에서도 gRPC reference 가 보여 마저 제거했다. 작업해서 다시 리뷰 요청했고, 답이 오기까지 오매불망 기다리기 힘들어 크로스핏 하러 튀었습니다.
-정신없는 와드가 끝나고 메일을 봤는데 마침내 merge logo를 볼 수 있었습니다!
+update.go 뿐만 아니라 ci 관련 파일에도 gRPC reference 가 보여 추가적으로 제거했습니다.
+다시 리뷰 요청을 하고 답이 오기까지 오매불망 기다리기 힘들어 크로스핏 하러 튀었습니다.
+정신없는 와드가 끝나고 메일을 봤는데,, 마침내 **merge logo** 를 볼 수 있었습니다!
+드디어 첫 오픈소스 기여를 할 수 있었습니다.
 
 ![image6.png](./image6.png)
 
-드디어 오픈소스 첫 기여를 할 수 있었습니다. 첫 기여라 엄청 기쁠 줄 알았는데 생각보다 덤덤했습니다.
+사실 첫 기여라 엄청 기쁠 줄 알았는데 생각보다 덤덤했습니다.
+앞으로도 이렇게 시도하면 되겠구나, 이래서 누구나 컨트리뷰션 할 수 있다고 말하는 것이구나 싶었습니다.
 
-<br/>
-
+<br />
 
 ![image7.png](./image7.png)
 
-다 쓰고 보니까 작은 커밋하나 남긴걸로 되게 유난떤 것 같다.
-
-
 ## 마무리
 
+- [첫 컨트리뷰션!](https://github.com/yorkie-team/yorkie/pull/1167)
+
 사실 이슈는 3주 전에 받았지만 작업은 어제 새벽에 시작해서 저녁에 1차 PR을 올리는 것으로 마무리했습니다.
-(물론 코드리뷰를 받고 수정해야 할 부분이 많을 것 같지만..)
-작업 과정에서 가장 어려웠던 점은 본문에서도 다뤘듯이 프로젝트 세팅과 첫 서버 실행이었습니다.
+물론 코드리뷰를 받고 수정한 것 까지 생각하면 5일 정도 걸렸습니다.
+작업 과정에서 가장 어려웠던 점은 본문에서도 다뤘듯이 **프로젝트 세팅**과 **처음 서버를 실행**하는 것이었습니다.
 작업 시간의 대부분을 설정 과정에서 삽질하는 데 사용했고, 실제 코드 작업은 생각보다 빨리 끝났습니다.
 
-첫 컨트리뷰션 시도라고 어그로를 끌었지만 사실 아직 머지도 되지 않았습니다 😂.
-다만 몇 년째 머릿속으로 생각만 하던 오픈소스 기여가 생각만큼 어려운 일은 아니라는 점에서 이 경험을 기록해두고 싶었습니다.
-또한 공식문서를 **제대로** 읽어야 한다는 교훈을 몸소 체감할 수 있었고, 까다로운 프로젝트 첫 실행/세팅 과정을 거치며 이러한 과정에 점점 익숙해지고 있다는 점에서 조금씩 성장하고 있다는 느낌을 받았습니다.
-늘 익숙한 코드베이스에서만 작업했는데, 오픈소스 기여를 꾸준히 하다보면 다양한 코드와 문제를 더 자주, 그리고 많이 마주할 수 있기에 코드를 보는 안목도 넓어지지 않을까 생각이 들었습니다.
+몇 년째 머릿속으로 생각만 하던 오픈소스 기여가 생각만큼 어려운 일이 아니라는 걸 깨달아, 이 경험을 기록하고 싶었습니다.
+또한 공식문서를 **제대로** 읽어야 한다는 교훈을 몸소 체감할 수 있었고,
+까다로운 프로젝트 첫 실행/세팅 과정을 거치며 이런 과정에 점점 익숙해지고 있다는 점에서 조금씩 성장하는 느낌을 받았습니다.
+늘 익숙한 코드베이스에서 작업했는데, 오픈소스를 꾸준히 하다보면 다양한 코드와 문제를 더 자주, 그리고 많이 마주할 수 있기에 코드보는 안목도 넓어지지 않을까 생각이 들었습니다.
 
-[PR](https://github.com/yorkie-team/yorkie/pull/1167)은 어제 올렸습니다. 오픈소스에 처음 올려본 PR 인데, 아직 머지된 것도 아니고 엄청 대단한 내용을 수정한 것도 아니라서 차분히 기다리고 있습니다.
-`coderabbitai` 봇의 댓글은 LGTM 이라고 하지만 살짝 불안한 마음은 드네요. 우선 메인테이너 분의 코멘트를 기다려보겠습니다.
+<br />
 
+#### reference
+
+- [yorkie docs](https://yorkie.dev/docs)
+- [[yorkie] goLand 에서 yorkie 디버깅하기](https://velog.io/@rimo09/yorkie-goLand-%EC%97%90%EC%84%9C-yorkie-%EB%94%94%EB%B2%84%EA%B9%85%ED%95%98%EA%B8%B0)
