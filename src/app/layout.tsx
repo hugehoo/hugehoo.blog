@@ -2,7 +2,6 @@
 
 import './globals.css';
 import { IBM_Plex_Sans_KR, IBM_Plex_Sans } from 'next/font/google';
-import localFont from 'next/font/local';
 import Head from 'next/head';
 import { Header } from '@/layouts/Header';
 import { Bottom } from '@/layouts/Bottom';
@@ -31,8 +30,6 @@ export default function RootLayout({
       lang="en"
       className={`${ibmPlexSansKr.variable} ${ibmPlexSans.variable}`}
     >
-      <title>huge.hoo</title>
-
       <Head>
         <meta
           name="description"
