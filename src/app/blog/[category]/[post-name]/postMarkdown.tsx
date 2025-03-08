@@ -201,7 +201,7 @@ const PostMarkdown = ({ params }: Props) => {
                     justifyContent: 'center',
                     position: 'relative',
                     margin: '1.5em 0',
-                    width: '100%',
+                    // width: '100%',
                   }}
                 >
                   <Image
@@ -210,8 +210,7 @@ const PostMarkdown = ({ params }: Props) => {
                     unoptimized={true}
                     width={0}
                     height={0}
-                    sizes="100vw"
-                    style={{ width: '80%', height: 'auto' }}
+                    style={{ width: '60%', height: 'auto' }}
                   />
                 </span>
               );
