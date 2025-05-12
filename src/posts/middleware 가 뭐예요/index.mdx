@@ -1,0 +1,114 @@
+---
+title: 'middleware 가 뭐예요'
+date: 2025-05-11
+desc: 그게 뭐예요?
+thumbnail: /team-member-1.jpeg
+category: middleware
+open: true
+---
+
+## 들어가는 글
+
+최근에 API-Gateway 에서 인증 미들웨어 부분을 리팩토링하면서 이상적인 미들웨어는 어떤 모습인지 고민하게 됐다.
+예시로 작성된 **As-Is**, **To-Be** 코드를 비교하면서 미들웨어를 미들웨어 답게 사용하는 방식을 알아보자.
+
+## 🌐 미들웨어(Middleware)란 무엇인가?
+
+`미들웨어(Middleware)`는 웹 애플리케이션에서 클라이언트의 요청(Request)과 서버의 응답(Response) 사이에 위치한 **중간 처리 계층**으로 요청이 들어올 때 이를 가로채 **무언가를** 처리한 뒤, 다음 단계로 넘기는 **함수**다.
+미들웨어는 하나의 요청을 처리하기 전에, 혹은 처리가 끝난 후에 다양한 작업을 수행할 수 있도록 지원한다.
+
+> - 인증(Authentication)
+> - 권한 검사(Authorization)
+> - 로깅(Logging)
+> - 트레이싱(Tracing)
+> - CORS 처리
+> - 요청/응답 가공: 헤더 추가, 파라미터 수정 등
+
+이처럼 미들웨어는 요청과 응답 흐름을 제어하며, 코드의 재사용성과 관심사 분리를 도와주는 핵심 컴포넌트로 동작한다.
+미들웨어가 어떤 상황에서 사용되는지는 간단히 알아봤다. 그럼 이 미들웨어는 어떻게 구성하는게 바람직할까?
+우선 미들웨어를 구현하는 방식은 Go 언어를 기준으로 크게 함수형(functional)과 구조체 기반(object-oriented)으로 나눌 수 있다.
+
+## 코드로 알아보는 미들웨어
+
+#### AS-IS
+
+아래는 인증을 담당하는 미들웨어 코드다. authenticate 변수에 인증 로직을 담당하는 미들웨어를 주입하여 Authenticate() 메서드를 호출하여 인증을 처리한다.
+미들웨어가 무엇인지 정확히 알기 전까지는 겉보기에 문제가 없는 코드라 생각했다.
+하지만 코드리뷰에선 미들웨어를 미들웨어 답게 사용하는 것이 좋다는 피드백을 받았다.
+그 때 까지만 해도 미들웨어가 어떤 역할을 하는지 명확히 몰랐기에 무엇을 고쳐야 하는지 모호했다.
+
+```go
+func Router(e *echo.Echo, endpoint string, authClientConn *grpc.ClientConn) {
+    ...
+	authenticate := middlewares.NewAuthMiddleware(nonTokenAuth, headerTokenAuth, anonymousAuth)
+	buildMiddlewares := func() []echo.MiddlewareFunc {
+		return []echo.MiddlewareFunc{
+            ...
+            authenticate.Authenticate(),
+            ...
+		}
+	}
+}
+
+```
+
+```go
+type AuthMiddleware struct {
+	authenticators []Authenticator
+}
+
+func NewAuthMiddleware(authenticators ...Authenticator) *AuthMiddleware {
+	return &AuthMiddleware{
+		authenticators: authenticators,
+	}
+}
+
+// Authenticate returns a middleware function that handles authentication
+func (m *AuthMiddleware) Authenticate() func(next echo.HandlerFunc) echo.HandlerFunc {
+	return func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(ec echo.Context) error {
+			req := ec.Request()
+			ctx := req.Context()
+			...
+			return echo.NewHTTPError(http.StatusUnauthorized, "Authentication failed")
+		}
+	}
+}
+```
+
+#### TO-BE
+
+As-Is 코드와 비교하면 어떤 차이가 있는지 살펴보자.
+기존 코드에서는 AuthMiddleware 구조체를 정의하고 NewAuthMiddleware (생성자) 함수로 인스턴스를 생성, Authenticate() 메서드를 호출하여 인증 기능을 추가했다. 인증 이란 중간 처리 작업을 위해 하나의 구조체와 두개의 메서드를 추가했다.
+반면 To-Be 코드는 꽤나 간결해진 것을 볼 수 있다. 애초에 AuthMiddleware 구조체도, 생성자 함수도 정의하지 않았다. 오직 인증 기능을 수행하기 위한 함수만 정의했다.
+코드가 간결해졌고 `buildMiddlewares` 함수에서도 별도로 `authenticate.Authenticate()` 처럼 메서드를 호출하지 않아도 된다. 그저 authenticate 미들웨어를 넘길 뿐이다.
+왜 To-Be 처럼 작성하는게 더 나은 방식일까? 이는 더 나은 방식이라기 보다 미들웨어을 미들웨어 답게 사용하는 방식이라 표현하는 것이 맞겠다.
+
+```go
+func Router(e *echo.Echo, endpoint string, authClientConn *grpc.ClientConn) {
+    ...
+	authenticate := middlewares.NewAuthMiddlewareV2(nonTokenAuth, headerTokenAuth, anonymousAuth)
+	buildMiddlewares := func() []echo.MiddlewareFunc {
+		return []echo.MiddlewareFunc{
+			authenticate, // 이전과 달리 단순히 미들웨어를 넘기면 된다.
+		}
+	}
+}
+```
+
+```go
+func NewAuthMiddlewareV2(authenticators ...Authenticator) func(next echo.HandlerFunc) echo.HandlerFunc {
+	return func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(ec echo.Context) error {
+			req := ec.Request()
+			ctx := req.Context()
+            ...
+			return echo.NewHTTPError(http.StatusUnauthorized, "Authentication failed")
+		}
+	}
+}
+```
+
+## 왜 이렇게 써야 하는지?
+
+## 맺는 말
