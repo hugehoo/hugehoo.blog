@@ -37,6 +37,10 @@ const TOC = ({ content }: TOCProps) => {
     }
   };
 
+  if (toc.length === 0) {
+    return null;
+  }
+
   return (
     <div className="toc">
       <h3>Table of Contents</h3>

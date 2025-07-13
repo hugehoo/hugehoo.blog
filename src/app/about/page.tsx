@@ -44,15 +44,15 @@ const About = async () => {
               개발자 글쓰기 커뮤니티 <b>글또</b>에서 5년째 활동하고 있습니다.{' '}
               {/* <br /> */}
               어른이지만 더 어른이 돼서도 글 쓰는 개발자이고 싶습니다.
-              <br />
-              <br />
+              <br/>
+              <br/>
               <div className={subTitleProperty}>사이드 프로젝트</div>
               <ul className="list-disc list-inside">
                 <li>
                   테크 블로그의 Read/Write 를 좋아해{' '}
                   <a
-                    className={anchorProperty}
-                    href="https://blog-scrapper-ui.vercel.app/"
+                      className={anchorProperty}
+                      href="https://blog-scrapper-ui.vercel.app/"
                   >
                     테크 블로그 스크래퍼
                   </a>
@@ -60,8 +60,8 @@ const About = async () => {
                 </li>
                 <li>
                   <a
-                    className={anchorProperty}
-                    href="https://github.com/hugehoo/tidify-be"
+                      className={anchorProperty}
+                      href="https://github.com/hugehoo/tidify-be"
                   >
                     IOS APP
                   </a>{' '}
@@ -71,22 +71,42 @@ const About = async () => {
                 <li>
                   2022 Junction Asia 해커톤{' '}
                   <a
-                    className={anchorProperty}
-                    href="https://www.newsis.com/view/?id=NISX20220822_0001985841"
+                      className={anchorProperty}
+                      href="https://www.newsis.com/view/?id=NISX20220822_0001985841"
                   >
                     Zep 트랙에서 1위
                   </a>
                   를 수상했습니다.{' '}
                   <a
-                    className={anchorProperty}
-                    href="https://github.com/ZEP-SIGHT/junction-back"
+                      className={anchorProperty}
+                      href="https://github.com/ZEP-SIGHT/junction-back"
                   >
                     🔗Github (2022.08)
                   </a>
                 </li>
               </ul>
+              <br/>
+              <div className={subTitleProperty}>Open source Contribution</div>
+              <ul className="list-disc list-inside">
+                <li>
+                  <a
+                      className={anchorProperty}
+                      href="https://github.com/grpc/grpc-go/pull/8347">
+                    grpc-go | balacergroup: cleanup exitIdle()
+                  </a>
+                </li>
+                <li>
+                  <a
+                      className={anchorProperty}
+                      href="https://github.com/yorkie-team/yorkie/pull/1167">
+
+                    yorkie | Replaced gRPC dependency with ConnectRpc
+                  </a>
+
+                </li>
+              </ul>
+
             </div>
-            <div></div>
           </div>
         </div>
       </div>
