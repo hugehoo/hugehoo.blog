@@ -1,0 +1,66 @@
+---
+title: 'go-mistakes-28'
+date: 2025-05-18
+desc: 맵과 메모리 누수 관련 실수
+thumbnail: /team-member-1.jpeg
+category: 100-go-mistakes
+open: false
+---
+
+
+```go
+func main() {
+    n := 1_000_000
+    m := make(map[int][128]byte)
+    printAlloc()
+
+    for i := 0; i < n; i++ { // Adds 1 million elements
+        m[i] = [128]byte{}
+    }
+    printAlloc()
+
+    for i := 0; i < n; i++ { // Deletes 1 million elements
+        delete(m, i)
+    }
+
+    runtime.GC() // Triggers a manual GC
+    printAlloc()
+    runtime.KeepAlive(m) // Keeps a reference to m so that the map isn’t collected - 이 라인 있고 없고 차이가 크다.
+}
+
+func printAlloc() {
+    var m runtime.MemStats
+    runtime.ReadMemStats(&m)
+    fmt.Printf("%d MB\n", m.Alloc/(1024*1024))
+}
+```
+
+
+- ref : https://github.com/golang/go/blob/master/src/runtime/map_noswiss.go#L115
+
+```go
+// A header for a Go map.
+type hmap struct {
+	// Note: the format of the hmap is also encoded in cmd/compile/internal/reflectdata/reflect.go.
+	// Make sure this stays in sync with the compiler's definition.
+	count     int // # live cells == size of map.  Must be first (used by len() builtin)
+	flags     uint8
+	B         uint8  // log_2 of # of buckets (can hold up to loadFactor * 2^B items)
+	noverflow uint16 // approximate number of overflow buckets; see incrnoverflow for details
+	hash0     uint32 // hash seed
+
+	buckets    unsafe.Pointer // array of 2^B Buckets. may be nil if count==0.
+	oldbuckets unsafe.Pointer // previous bucket array of half the size, non-nil only when growing
+	nevacuate  uintptr        // progress counter for evacuation (buckets less than this have been evacuated)
+	clearSeq   uint64
+
+	extra *mapextra // optional fields
+}
+```
+
+정리를 해보면 100만 이상의 큰 값을 map 에 value 저장 시 버킷의 크기가 늘어나 다시 축소가 안된다. map 자체가 차지하는 용량이 많아짐 -> OOM 위험 존재.
+해결책
+포인터를 value 대신 저장하라. 이유는 포인터의 용량이 더 적기 때문. ?
+[128]byte 처럼 크기가 큰 값을 map 에 저장하면, 삽입, 삭제, 조회 시 값 전체가 복사된다.
+반면 포인터를 저장시 value 의 크기는 단 8바이트 밖에 되지 않고, 값 자체는 힙에 저장되어 map 은 그 주소만 저장한다.
+복사 부담은 거의 없어지고 오히려 메모리 캐싱에도 유리해진다.
