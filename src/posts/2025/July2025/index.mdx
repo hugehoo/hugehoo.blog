@@ -16,11 +16,11 @@ toc: ignore
 그럼 어떻게 구조체는 특정 인터페이스를 구현하느냐? 그저 인터페이스에 정의된 모든 메서드를 구현하기만 하면 자동으로 해당 인터페이스를 충족하는걸로 간주된다.
 
 #### [연간 LLM 호출 비용 25% 절감, 인턴이 도전한 시맨틱 캐싱 도입 기록](https://medium.com/daangn/%EC%97%B0%EA%B0%84-llm-%ED%98%B8%EC%B6%9C-%EB%B9%84%EC%9A%A9-25-%EC%A0%88%EA%B0%90-%EC%9D%B8%ED%84%B4%EC%9D%B4-%EB%8F%84%EC%A0%84%ED%95%9C-%EC%8B%9C%EB%A7%A8%ED%8B%B1-%EC%BA%90%EC%8B%B1-%EB%8F%84%EC%9E%85-%EA%B8%B0%EB%A1%9D-af3de9a74d0c)
-
-#### [Behind the Scenes: Building a Robust Ads Event Processing Pipeline](https://netflixtechblog.com/behind-the-scenes-building-a-robust-ads-event-processing-pipeline-e4e86caf9249)
-
-> - 광고 서빙 시스템을 뇌에 비유한게 참신했음. 뇌가 지속적인 혈류에 의존하듯, 광고 시스템은 다음 광고 결정, 빈도 제한, 속도, 개인화를 조정하기 위해 일정한
-광고 이벤트 흐름에 의존한다.
+>- 벡터 DB 란 문장을 벡터 값(숫자 배열)으로 변환해서 저장하는 DB. 사용자가 **안녕하세요** 키워드 입력 시 해당 문장을 벡터 값으로 변환하여 기존에 저장돼 있던 벡터들과 유사도를 계산한다.
+유사도의 임계값(threshold)에 충족되면 미리 준비된 응답을 반환하는 형태.
+>- `chromem-go` 라는 임베디드 벡터 DB 를 사용하여 네트워크 지연이나 추가 인프라 비용을 절감함. (인메모리 DB 를 사용한 격)
+>- 벡터 DB 에 미리 문장 세트를 준비하기 위해 DBSCAN 이란 밀도 기반의 알고리즘 채택 -> 비슷한 문장들이 많이 모여있으면 하나의 그룹으로 묶고, 혼자 떨어져 있는 이상한 문장은 노이즈로 분류.
+> 미리 수집한 문장을 유사한 그룹으로 분류하여 캐싱
 
 #### [Scaling recommendations service at OLX](https://tech.olx.com/scaling-recommendations-service-at-olx-db4548813e3a)
 > - pydantic 이 항상 최선의 선택이 아니다. request 뿐 아니라 request output, object creation 에도 pydantic 이 적용돼 다중 검증으로 인한 런타임 오버헤드가 커짐.
