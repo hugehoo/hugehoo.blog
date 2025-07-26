@@ -1,0 +1,21 @@
+---
+title: 'Articles of July Week 4'
+date: 2025-07-27 18:00:00
+desc: 7월 4주차 아티클 정리
+thumbnail: /team-member-1.jpeg
+category: blog
+open: false
+toc: ignore
+---
+
+#### [왜 Kubernetes 인가? How가 아닌 Why로 접근하는 Kubernetes 이야기](https://medium.com/naverfinancial/%EC%99%9C-kubernetes-%EC%9D%B8%EA%B0%80-how%EA%B0%80-%EC%95%84%EB%8B%8C-why%EB%A1%9C-%EC%A0%91%EA%B7%BC%ED%95%98%EB%8A%94-kubernetes-%EC%9D%B4%EC%95%BC%EA%B8%B0-a303aa513a8d)
+>- 태초에 베어메탈이 있었다. 서버 컴퓨터에 여러 프로그램을 설치해서 사용하려 했으나 각 프로그램 간의 종속성과 버전 문제 때문에 쉽지 않은 낭만의 시절이었다.
+>- VM 의 등장으로 호환성 지옥에서 빠져나옴. VM 은 Hypervisor 라는 플랫폼으로 하나의 서버에 여러 OS 를 구동할 수 있다.
+VM 의 OS 는 크게 2가지로 나뉜다. 하이퍼바이저**를** 실행하는 `Host OS` 와 하이퍼바이저**가** 실행하는 `Guest OS`.
+Guest OS 는 하이퍼바이저가 구현한 가상의 OS 이기에 OS 의 모든 환경을 일정하게 관리/복제가 가능하다.
+즉 동일한 하드웨어와 동일한 OS 를 사용하도록 보장할 수 있어 호환성 문제를 극복할 수 있다.
+>- Docker 의 등장. VM 의 단점인 HostOS 위에 하이퍼바이저를 올리고 또 그 위에 GuestOS 를 띄우는 방식의 비효율성을 해결하기 위해 등장.
+Docker 는 하이버바이저 대신 Docker Engine 이 그 역할을 대신.
+>- 도커는 자체 OS 를 실행하기 위해 Kernel, filesystem, library 를 모두 포함하는 Linux OS 가 아닌, filesystem 과 library 만을 포함하는 Linux Image 를 사용한다. 커널은 HostOS 의 커널을 공유하여 자체 커널이 없어 매우 가볍다.
+>- 정리하면 VM 은 OS 를 격리하고, docker 는 process 를 격리한다.
+

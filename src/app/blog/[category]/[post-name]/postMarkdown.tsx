@@ -87,7 +87,7 @@ const PostMarkdown = ({ params }: Props) => {
                   id={generateIdFromText(headingText)}
                   style={{
                     color: '#111',
-                    fontSize: '1.8em',
+                    fontSize: '1.7em',
                     fontWeight: '900',
                     margin: '1.5em 0 0.5em 0',
                   }}
@@ -102,7 +102,7 @@ const PostMarkdown = ({ params }: Props) => {
                   id={generateIdFromText(headingText)}
                   style={{
                     color: '#111',
-                    fontSize: '1.6em',
+                    fontSize: '1.5em',
                     fontWeight: '900',
                     margin: '0.3em 0 0.5em 0',
                   }}
@@ -200,8 +200,8 @@ const PostMarkdown = ({ params }: Props) => {
                     display: 'flex',
                     justifyContent: 'center',
                     position: 'relative',
-                    margin: '1.5em 0',
-                    // width: '100%',
+                    margin: '2em 0',
+                    width: '100%',
                   }}
                 >
                   <Image
@@ -210,7 +210,7 @@ const PostMarkdown = ({ params }: Props) => {
                     unoptimized={true}
                     width={0}
                     height={0}
-                    style={{ width: '60%', height: 'auto' }}
+                    style={{ width: '80%', height: 'auto', borderRadius: '0.3em', boxShadow: '0 4px 6px rgba(0, 0, 0, 0.1)' }}
                   />
                 </span>
               );
