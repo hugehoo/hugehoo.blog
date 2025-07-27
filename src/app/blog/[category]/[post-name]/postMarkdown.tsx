@@ -169,11 +169,10 @@ const PostMarkdown = ({ params }: Props) => {
             strong: ({ node, ...props }) => (
               <strong
                 style={{
-                  color: '#111',
-                  fontSize: '0.99em',
+                  fontSize: '1em',
+                  fontWeight: '600',
                   background:
-                    'linear-gradient(to top, #fff3b9 20%, transparent 50%)',
-                  // background: '#fff3b9',
+                    'linear-gradient(to top, #fff3b9 25%, transparent 50%)',
                 }}
                 {...props}
               />
