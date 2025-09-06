@@ -91,8 +91,15 @@ const About = async () => {
                 <li>
                   <a
                       className={anchorProperty}
+                      href="https://github.com/grpc/grpc-go/pull/8375">
+                    grpc-go | grpctest: add test coverages of ExitIdle #8375
+                  </a>
+                </li>
+                <li>
+                  <a
+                      className={anchorProperty}
                       href="https://github.com/grpc/grpc-go/pull/8347">
-                    grpc-go | balacergroup: cleanup exitIdle()
+                    grpc-go | balacergroup: cleanup exitIdle() #8347
                   </a>
                 </li>
                 <li>
@@ -100,9 +107,8 @@ const About = async () => {
                       className={anchorProperty}
                       href="https://github.com/yorkie-team/yorkie/pull/1167">
 
-                    yorkie | Replaced gRPC dependency with ConnectRpc
+                    yorkie | Replaced gRPC dependency with ConnectRpc #1167
                   </a>
-
                 </li>
               </ul>
 
