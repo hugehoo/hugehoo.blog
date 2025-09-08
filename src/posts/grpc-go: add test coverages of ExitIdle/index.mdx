@@ -6,6 +6,7 @@ thumbnail: /team-member-1.jpeg
 category: grpc-go, opensource
 open: true
 ---
+🔗 PR - https://github.com/grpc/grpc-go/pull/8375
 
 ## 1. PR의 목적
 기존에 작성되지 않았던 **ExitIdle** 관련 메서드의 단위 테스트를 작성하여 테스트 커버리를 추가하는 PR 입니다. 여기서 ExitIdle 이 무엇을 의미하는지 아래에서 설명하겠습니다.
@@ -71,15 +72,12 @@ balancergroup 은 클라이언트-서버 간 여러 개의 물리적 연결을 �
 `ExitIdle` 과 `BalancerGroup` 는 클라이언트 측 로드 밸런싱에서 함께 동작합니다. 유휴 상태의 클라이언트가 활성화되어 요청을 보내기 위한 트리거 역할을 ExitIdle 이 제공하고,
 BalancerGroup 은 활성화된 클라이언트가 요청을 보낼 때 최적의 서버를 선택할 있도록 부하 분산 작업을 설정 역할을 수행합니다.
 
-## 2. 수정 사항
-BalancerGroup 관련 테스트들:
+## 2. PR - 테스트 케이스 작성
+BalancerGroup 관련 테스트 작성:
+### 2-1. TestBalancerGroup_UpdateClientConnState_AfterClose
+BalancerGroup이 닫힌(Close) 후 UpdateClientConnState 메서드가 호출됐을 때의 동작을 검증하는 테스트로,
+BalancerGroup close 후에는 더 이상 하위 balancer 에게 상태 업데이트 전파가 되지 않도록 검증합니다.
 
-- `TestBalancerGroup_UpdateClientConnState_AfterClose`: BalancerGroup이 닫힌 후 클라이언트 연결 상태 업데이트 시 동작 검증
-
-이 테스트는 BalancerGroup이 닫힌(Close) 후에 UpdateClientConnState 메서드가 호출되었을 때의 동작을 검증하는 중요한 테스트 케이스입니다.테스트의 목적과 배경BalancerGroup은 여러 하위 balancer들을 관리하는 상위 컴포넌트로, 생명주기 관리가 매우 중요합니다. 특히 BalancerGroup이 종료된 후에는 더 이상 하위 balancer들에게 상태 업데이트를 전파하지 않아야 합니다. 이는 다음과 같은 이유 때문입니다:
-리소스 누수 방지: 종료된 컴포넌트가 계속해서 작업을 수행하면 메모리 누수나 예상치 못한 동작을 야기할 수 있습니다.
-일관성 보장: 종료된 BalancerGroup은 더 이상 유효한 상태가 아니므로, 하위 balancer들에게 업데이트를 전파하는 것은 논리적으로 맞지 않습니다.
-안전성 확보: 종료 후의 호출에 대해 적절히 처리함으로써 시스템의 안정성을 보장합니다.
 ``` go
 func (s) TestBalancerGroup_UpdateClientConnState_AfterClose(t *testing.T) {
 	balancerName := t.Name()
@@ -115,18 +113,150 @@ func (s) TestBalancerGroup_UpdateClientConnState_AfterClose(t *testing.T) {
 	}
 }
 ```
-- `TestBalancerGroup_ResolverError_AfterClose`: BalancerGroup이 닫힌 후 resolver 에러 처리 검증
-- `TestBalancerGroup_ExitIdle_All`: 정상적인 ExitIdle 호출 시 모든 하위 balancer에게 전파되는지 검증
-- `TestBalancerGroup_ExitIdleOne_NonExistentID`: 존재하지 않는 ID로 ExitIdleOne 호출 시 동작 검증
-- `TestBalancerGroup_ExitIdle_AfterClose`: BalancerGroup이 닫힌 후 ExitIdle 호출 시 하위 balancer에게 전파되지 않는지 검증
+UpdateClientConnState 를 호출하면 clientConnStateCh 채널에 신호가 오도록 stub 을 등록했고, select 문을 사용하여 해당 채널에 신호가 오는지 혹은
+defaultTestShortTimeout 이 지나면 정상종료 되도록 두가지 케이스를 검증합니다.
+종료된 BalancerGroup 에서 UpdateClientConnState 를 호출할 수 없는 것이 정상 동작이기 때문에 clientConnStateCh 가 신호를 받으면 테스트는 실패합니다.
+실제로 UpdateClientConnState 구현을 보면 balancer group 이 닫힌 후엔 nil 을 리턴하여 graceful 하게 처리되는 것을 확인할 수 있습니다.
 
-XDS Server 관련 테스트:
+``` go
+// UpdateClientConnState handles ClientState (including balancer config and
+// addresses) from resolver. It finds the balancer and forwards the update.
+func (bg *BalancerGroup) UpdateClientConnState(id string, s balancer.ClientConnState) error {
+	bg.outgoingMu.Lock()
+	defer bg.outgoingMu.Unlock()
+	if bg.outgoingClosed {
+		return nil
+	}
+	if config, ok := bg.idToBalancerConfig[id]; ok {
+		return config.updateClientConnState(s)
+	}
+	return nil
+}
+```
+<br/>
 
-xds/server_test.go에도 ExitIdle 관련 테스트 추가
+### 2-2. TestBalancerGroup_ResolverError_AfterClose
+BalancerGroup이 닫힌 후 ResolverError 메서드가 호출 시 동작을 검증하는 테스트로
+BalancerGroup close 후에는 더 이상 하위 balancer 에게 resolver 에러가 전파되지 않도록 검증합니다.
+`ResolverError는` gRPC의 name resolution 과정에서 발생하는 에러를 처리하는 메서드입니다.
+DNS 조회 실패, Service Discovery 장애, 네트워크 연결 문제 등의 상황에서 name resolver가 서비스 이름을 실제 서버 주소로 변환하지 못할 때 호출됩니다.
+ResolverError를 호출하면 resolveErrorCh 채널에 신호가 오도록 stub을 등록했고
+select 문을 사용하여 해당 채널에 신호가 오는지 혹은 defaultTestShortTimeout이 지나면 정상종료 되도록 두가지 케이스를 검증합니다.
+종료된 BalancerGroup 에서 ResolverError가 하위 balancer에 전파되지 않는 것이 정상 동작이기 때문에 resolveErrorCh가 신호를 받으면 테스트는 실패합니다.
 
-테스트 구현 방식:
+``` go
+func (s) TestBalancerGroup_ResolverError_AfterClose(t *testing.T) {
+	balancerName := t.Name()
+	resolveErrorCh := make(chan struct{}, 1)
 
-채널을 사용한 비동기 검증 (buffered channel 사용)
-stub balancer를 등록하여 ExitIdle 호출 여부 확인
-timeout을 활용한 예상되지 않는 동작 검증
+	stub.Register(balancerName, stub.BalancerFuncs{
+		ResolverError: func(_ *stub.BalancerData, _ error) {
+			resolveErrorCh <- struct{}{}
+		},
+	})
+
+	bg := New(Options{
+		CC:              testutils.NewBalancerClientConn(t),
+		BuildOpts:       balancer.BuildOptions{},
+		StateAggregator: nil,
+		Logger:          nil,
+	})
+
+	bg.Add(testBalancerIDs[0], balancer.Get(balancerName))
+	bg.Close()
+
+	bg.ResolverError(errors.New("test error"))
+
+	select {
+	case <-resolveErrorCh:
+		t.Fatalf("ResolverError was called on sub-balancer after BalancerGroup was closed")
+	case <-time.After(defaultTestShortTimeout):
+	}
+}
+```
+
+ResolverError 구현에선 balancer group 이 닫힌 후엔 early return 으로 graceful 한 처리하는 것을 확인할 수 있습니다.
+``` go
+// ResolverError handles name resolution errors from the name resolver.
+func (bg *BalancerGroup) ResolverError(err error) {
+    bg.outgoingMu.Lock()
+    defer bg.outgoingMu.Unlock()
+    if bg.outgoingClosed {
+        return
+    }
+    for _, config := range bg.idToBalancerConfig {
+        config.resolverError(err)
+    }
+}
+```
+
+### 2-3. TestBalancerGroup_ExitIdle_AfterClose
+
+BalancerGroup이 닫힌 후 ExitIdle 메서드가 호출됐을 때의 동작을 검증하는 테스트 입니다.
+BalancerGroup close 후에는 더 이상 하위 balancer 에게 ExitIdle 호출이 전파되지 않도록 검증합니다. <br/>
+
+ExitIdle 의 개념을 파악하면 사실 너무나 당연한 검증 코드입니다.
+ExitIdle은 유휴 상태의 클라이언트를 활성화하여 서버와의 연결을 재개하는 것이 핵심 메커니즘으로,
+일반적으로는 새로운 RPC 요청이 들어오거나 명시적으로 Connect() 메서드가 호출될 때 트리거되어 IDLE 상태의 SubConn 들이 연결을 시도합니다.
+
+``` go
+func (s) TestBalancerGroup_ExitIdle_AfterClose(t *testing.T) {
+	balancerName := t.Name()
+	exitIdleCh := make(chan struct{}, 1)
+
+	stub.Register(balancerName, stub.BalancerFuncs{
+		ExitIdle: func(_ *stub.BalancerData) {
+			exitIdleCh <- struct{}{}
+		},
+	})
+
+	bg := New(Options{
+		CC:              testutils.NewBalancerClientConn(t),
+		BuildOpts:       balancer.BuildOptions{},
+		StateAggregator: nil,
+		Logger:          nil,
+	})
+
+	bg.Add(testBalancerIDs[0], balancer.Get(balancerName))
+	bg.Close()
+	bg.ExitIdle()
+
+	select {
+	case <-exitIdleCh:
+		t.Fatalf("ExitIdle was called on sub-balancer even after BalancerGroup was closed")
+	case <-time.After(defaultTestShortTimeout):
+	}
+}
+```
+ExitIdle을 호출하면 exitIdleCh 채널에 신호가 오도록 stub을 등록했고,
+select 문을 사용하여 해당 채널에 신호가 오는지 혹은 defaultTestShortTimeout이 지나면 정상종료 되도록 두가지 케이스를 검증합니다.
+종료된 BalancerGroup에서 ExitIdle이 하위 balancer에 전파되지 않는 것이 정상 동작이기 때문에 exitIdleCh가 신호를 받으면 테스트는 실패합니다.
+
+실제로 ExitIdle 구현을 보면 balancer group이 닫힌 후엔 early return 후 graceful 하게 처리되는 것을 확인할 수 있습니다.
+
+``` go
+// ExitIdle starts the balancing picker for use and exits idle mode.
+func (bg *BalancerGroup) ExitIdle() {
+    bg.outgoingMu.Lock()
+    defer bg.outgoingMu.Unlock()
+    if bg.outgoingClosed {
+        return
+    }
+    for _, config := range bg.idToBalancerConfig {
+        config.exitIdle()
+    }
+}
+```
+
+위 3개의 테스트코드와 유사한 메커니즘으로 나머지 상황에 대해서도 테스트 코드를 작성했고 PR 을 마무리 할 수 있었습니다.
+
+
+## 3. 마무리
+grpc-go 내부 메커니즘 중 BalancerGroup 과 ExitIdle 의 동작원리를 이해하고 다양한 시나리오에 대한 테스트 코드를 작성할 수 있는 PR 이었습니다.
+리뷰를 받기 전 channel 대신 variable 을 사용해 검증 코드를 작성했을 땐 다음과 같은 리뷰를 받게 됐습니다.
+![img.png](/img.png)
+간단히 말하면 변수 대신 채널을 사용하란 말인데, grpc 처럼 내부적으로 많은 고루틴을 사용하는 라이브러리를 테스트할 땐 race condition 에 대한 고려도
+필요하기 때문에 내부적으로 동기화가 보장되는 channel 을 사용해야 한다는 것도 알 수 있었습니다.
+
+
 
