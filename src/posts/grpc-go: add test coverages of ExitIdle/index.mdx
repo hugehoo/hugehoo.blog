@@ -1,0 +1,132 @@
+---
+title: 'grpc-go: add test coverages of ExitIdle'
+date: 2025-09-07
+desc: 'grpc-go: add test coverages of ExitIdle #8375'
+thumbnail: /team-member-1.jpeg
+category: grpc-go, opensource
+open: true
+---
+
+## 1. PR의 목적
+기존에 작성되지 않았던 **ExitIdle** 관련 메서드의 단위 테스트를 작성하여 테스트 커버리를 추가하는 PR 입니다. 여기서 ExitIdle 이 무엇을 의미하는지 아래에서 설명하겠습니다.
+이번 PR 에서는 BalancerGroup 의 ExitIdle 이 다양한 시나리오에서 올바르게 처리되는지 검증하기 위한 테스트 코드를 추가합니다.
+
+### 1-1. ExitIdle 이란?
+ExitIdle은 gRPC 클라이언트가 유휴(idle) 상태에서 벗어나(exit) 다시 연결을 활성화하는 메커니즘을 의미합니다.
+gRPC 클라이언트는 서버와의 연결을 유지하지만, 일정 시간 동안 요청이 없으면 리소스를 절약하기 위해 연결이 유휴 상태로 전환됩니다.
+유휴 상태에서는 서버와의 연결이 끊기거나, 요청이 왔을 때 즉시 처리할 수 없는 상태가 될 수 있습니다.
+ExitIdle은 새로운 요청이 들어왔을 때, 클라이언트가 유휴 상태에서 벗어나 서버와의 연결을 재개하고, 정상적인 요청 처리 상태로 돌아가도록 트리거합니다.
+
+`subConn` 은 gRPC client 와 하나의 특정 서버 간의 단일 연결을 의미하는 개념으로, IDLE 상태의 SubConn 은 **subConn.Connect**가 호출될 때까지 자동으로 재연결하지 않습니다.
+gRPC 의 default idleTimeout 은 30분으로 채널에 진행 중인 RPC가 없고 새로운 RPC가 시작되지 않으면 채널은 idle 모드로 전환됩니다.
+이때 name resolver와 load balancer가 종료됩니다.
+반대로 ExitIdle 이 트리거 되면 name resolver 와 load balancer 역시 재시작 됩니다.
+
+``` go
+func defaultDialOptions() dialOptions {
+	return dialOptions{
+		copts: transport.ConnectOptions{
+			ReadBufferSize:  defaultReadBufSize,
+			WriteBufferSize: defaultWriteBufSize,
+			UserAgent:       grpcUA,
+			BufferPool:      mem.DefaultBufferPool(),
+		},
+		bs:                       internalbackoff.DefaultExponential,
+		idleTimeout:              30 * time.Minute,
+		defaultScheme:            "dns",
+		maxCallAttempts:          defaultMaxCallAttempts,
+		useProxy:                 true,
+		enableLocalDNSResolution: false,
+	}
+}
+```
+
+<details>
+<summary>gRPC 의 channel 이란 </summary>
+`채널(channel)` 은 클라이언트가 서버에 RPC(remote procedure call) 를 보낼 수 있는 통신 통로 역할을 하는 논리적 연결을 의미합니다.
+여기서 채널은 단순히 하나의 tcp 연결을 의미하는 것이 아닌, 여러 기능을 추상화하고 관리하는 상위 개념으로 아래의 역할을 수행할 수 있습니다.
+
+> - 연결 관리 : 채널은 한 개 이상의 물리적인 TCP 연결(subConn) 을 관리
+> - 부하 분산 : 여러 서버 인스턴스에 부하 분산을 처리
+> - 연결 재시도: 연결이 끊어졌을 때 자동 재연결 시도.
+</details>
+
+``` go
+type ExitIdler interface {
+    // ExitIdle은 LB 정책에게 백엔드와 재연결하거나
+    // IDLE 상태에서 벗어나도록 지시합니다
+    ExitIdle()
+}
+```
+
+정리하자면 ExitIdle 은 유휴 상태인 클라이언트가 활성화되어 재요청을 보내는 트리거 역할을 제공합니다.
+
+
+### 1-2. BalancerGroup 이란?
+`balancergroup`은 gRPC 클라이언트 측에서 여러 백엔드 **연결을 관리**하고 요청을 적절한 **백엔드로 분산**하기 위한 부하 분산 구성 요소입니다.
+하나의 gRPC 서비스는 여러 서버(백엔드)로 구성될 수 있으며, balancergroup 은 이러한 서버를 그룹화하여 효율적인 부하 분산을 가능케 합니다.
+클라이언트와 통신할 여러 서버 중에서 현재 요청을 보낼 최적의 서버를 선택하는 로직을 구현하며, 이는 round robin,least-connection 같은 다양한 부하 분산 전략을 선택할 수 있습니다.
+balancergroup 은 클라이언트-서버 간 여러 개의 물리적 연결을 논리적인 하나의 단위로 관리하여, 로드 밸런싱 정책이 복잡한 연결 상태를 개발자가 직접 다루지 않고도 추상화된 백엔드 그룹에 대한 결정을 내릴 수 있는 역할을 합니다.
+
+`ExitIdle` 과 `BalancerGroup` 는 클라이언트 측 로드 밸런싱에서 함께 동작합니다. 유휴 상태의 클라이언트가 활성화되어 요청을 보내기 위한 트리거 역할을 ExitIdle 이 제공하고,
+BalancerGroup 은 활성화된 클라이언트가 요청을 보낼 때 최적의 서버를 선택할 있도록 부하 분산 작업을 설정 역할을 수행합니다.
+
+## 2. 수정 사항
+BalancerGroup 관련 테스트들:
+
+- `TestBalancerGroup_UpdateClientConnState_AfterClose`: BalancerGroup이 닫힌 후 클라이언트 연결 상태 업데이트 시 동작 검증
+
+이 테스트는 BalancerGroup이 닫힌(Close) 후에 UpdateClientConnState 메서드가 호출되었을 때의 동작을 검증하는 중요한 테스트 케이스입니다.테스트의 목적과 배경BalancerGroup은 여러 하위 balancer들을 관리하는 상위 컴포넌트로, 생명주기 관리가 매우 중요합니다. 특히 BalancerGroup이 종료된 후에는 더 이상 하위 balancer들에게 상태 업데이트를 전파하지 않아야 합니다. 이는 다음과 같은 이유 때문입니다:
+리소스 누수 방지: 종료된 컴포넌트가 계속해서 작업을 수행하면 메모리 누수나 예상치 못한 동작을 야기할 수 있습니다.
+일관성 보장: 종료된 BalancerGroup은 더 이상 유효한 상태가 아니므로, 하위 balancer들에게 업데이트를 전파하는 것은 논리적으로 맞지 않습니다.
+안전성 확보: 종료 후의 호출에 대해 적절히 처리함으로써 시스템의 안정성을 보장합니다.
+``` go
+func (s) TestBalancerGroup_UpdateClientConnState_AfterClose(t *testing.T) {
+	balancerName := t.Name()
+	clientConnStateCh := make(chan struct{}, 1)
+
+  // stub balancer 등록
+	stub.Register(balancerName, stub.BalancerFuncs{
+	  // UpdateClientConnState 호출될 때 마다 채널에 신호를 보내도록 함
+		UpdateClientConnState: func(_ *stub.BalancerData, _ balancer.ClientConnState) error {
+			clientConnStateCh <- struct{}{}
+			return nil
+		},
+	})
+
+	bg := New(Options{
+		CC:              testutils.NewBalancerClientConn(t), // 테스트용 클라이언트 연결 생성
+		BuildOpts:       balancer.BuildOptions{},
+		StateAggregator: nil,
+		Logger:          nil,
+	})
+
+	bg.Add(testBalancerIDs[0], balancer.Get(balancerName))
+	bg.Close() // BalancerGroup 을 종료 상태로 변경 -> bg 에 속하는 balancer 는 유휴 상태가 되어야 함
+
+	if err := bg.UpdateClientConnState(testBalancerIDs[0], balancer.ClientConnState{}); err != nil {
+		t.Fatalf("Expected nil error, got %v", err)
+	}
+
+	select {
+	case <-clientConnStateCh:
+		t.Fatalf("UpdateClientConnState was called after BalancerGroup was closed")
+	case <-time.After(defaultTestShortTimeout):
+	}
+}
+```
+- `TestBalancerGroup_ResolverError_AfterClose`: BalancerGroup이 닫힌 후 resolver 에러 처리 검증
+- `TestBalancerGroup_ExitIdle_All`: 정상적인 ExitIdle 호출 시 모든 하위 balancer에게 전파되는지 검증
+- `TestBalancerGroup_ExitIdleOne_NonExistentID`: 존재하지 않는 ID로 ExitIdleOne 호출 시 동작 검증
+- `TestBalancerGroup_ExitIdle_AfterClose`: BalancerGroup이 닫힌 후 ExitIdle 호출 시 하위 balancer에게 전파되지 않는지 검증
+
+XDS Server 관련 테스트:
+
+xds/server_test.go에도 ExitIdle 관련 테스트 추가
+
+테스트 구현 방식:
+
+채널을 사용한 비동기 검증 (buffered channel 사용)
+stub balancer를 등록하여 ExitIdle 호출 여부 확인
+timeout을 활용한 예상되지 않는 동작 검증
+
