@@ -172,7 +172,7 @@ const PostMarkdown = ({ params }: Props) => {
                   fontSize: '1em',
                   fontWeight: '600',
                   background:
-                    'linear-gradient(to top, #fff3b9 25%, transparent 50%)',
+                    'linear-gradient(to top, #fff3b9 50%, transparent 60%)',
                 }}
                 {...props}
               />
