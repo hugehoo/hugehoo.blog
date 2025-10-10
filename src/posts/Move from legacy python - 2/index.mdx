@@ -95,7 +95,7 @@ pip 패키지는 requirements.txt가 바뀌지 않는 한 동일하기 때문에
 ```
 
 - **cache hit**: 패키지 설치 완전히 스킵
-- **cache miss**: 다운로드는 빠르고 설치만 진행
+- **cache miss**: 패키지 설치 진행
 
 ![image2.png](./image2.png)
 
@@ -212,8 +212,6 @@ services:
  # size=256m: 최대 256MB까지 사용 (미지정 시 호스트 RAM의 50%가 기본값)
 ```
 
-
-
 MySQL의 데이터 디렉토리(`/var/lib/mysql`)를 tmpfs로 마운트하면:
 
 - 디스크 I/O 대신 메모리 I/O 사용
@@ -222,6 +220,8 @@ MySQL의 데이터 디렉토리(`/var/lib/mysql`)를 tmpfs로 마운트하면:
 
 > 메모리가 부족할 경우 swap 영역(디스크)으로 스왑될 수 있습니다.
 CI 환경에서는 일반적으로 문제가 되지 않지만 완전한 메모리 전용 동작을 원한다면 충분한 메모리를 확보해야 합니다.
+
+![image5.png](./image5.png)
 
 <hr/>
 
