@@ -241,6 +241,57 @@ const PostMarkdown = ({ params }: Props) => {
                 </code>
               );
             },
+            table: ({ node, ...props }) => (
+              <table
+                style={{
+                  borderCollapse: 'collapse',
+                  width: '100%',
+                  margin: '1.5em 0',
+                  fontSize: '0.95em',
+                }}
+                {...props}
+              />
+            ),
+            thead: ({ node, ...props }) => (
+              <thead
+                style={{
+                  backgroundColor: '#f8f9fa',
+                }}
+                {...props}
+              />
+            ),
+            th: ({ node, ...props }) => (
+              <th
+                style={{
+                  border: '1px solid #dee2e6',
+                  padding: '0.75rem',
+                  textAlign: 'left',
+                  fontWeight: '600',
+                  backgroundColor: '#f8f9fa',
+                }}
+                {...props}
+              />
+            ),
+            td: ({ node, ...props }) => (
+              <td
+                style={{
+                  border: '1px solid #dee2e6',
+                  padding: '0.75rem',
+                }}
+                {...props}
+              />
+            ),
+            tbody: ({ node, ...props }) => (
+              <tbody {...props} />
+            ),
+            tr: ({ node, ...props }) => (
+              <tr
+                style={{
+                  borderBottom: '1px solid #dee2e6',
+                }}
+                {...props}
+              />
+            ),
           }}
         >
           {content}
