@@ -1,45 +1,147 @@
 ---
 title: Redis-setnx 로 중복 요청 방지
 date: 2025-11-30
-desc: 따딱 블로킹
+desc: 따닥 블로킹
 thumbnail: /team-member-1.jpeg
 category: Redis
 open: true
 ---
 
-## 기존 문제: Get & Set 으로 중복 요청 체크
-- 기존코드는 어쩌구어쩌구
+## 들어가며: 프로덕션에서 발견한 이상한 로그
 
+이벤트 참여 API 에서 이상한 패턴이 보인다는 프론트엔드 개발자 분의 제보에 코드를 분석했다. <br/>
+동일한 사용자의 요청이 1초도 안 되는 시간에 3번 들어왔는데 첫 두 요청은 409(중복 요청)으로 응답되고 **마지막 세 번째 요청만 200 OK로 성공**한 것이다.
+
+```json
+// 09:52:15.443841 - 첫 번째 요청
+{ "status": 409, "latency": "45.60829ms" }
+
+// 09:52:15.444325 - 두 번째 요청 (0.5ms 후)
+{ "status": 409, "latency": "44.822451ms" }
+
+// 09:52:15.444592 - 세 번째 요청 (0.75ms 후)
+{ "status": 200, "latency": "180.536595ms" }  // 왜 성공?
+```
+
+중복 요청 방지 로직이 제대로 작동했다면 **첫 번째 요청만 200 OK**가 나와야 했지만,
+오히려 첫 두 요청은 실패하고 마지막 요청만 성공했다. 문제 분석 결과 기존 코드의 **Get-Then-Set 패턴의 Race Condition**이 원인임을 발견했다.
+이번 글은 이 문제를 어떻게 발견하고, Redis의 SETNX를 사용해 어떻게 해결했는지에 대한 기록이다.
+
+
+## 기존 문제: Get & Set 으로 중복 요청 체크했을 때의 Race Condition
+
+기존 코드는 아래와 같이 작성돼 있다.
+
+```go
+func (u *UseCase) checkDuplicatedClick(ctx context.Context, transactionID string) error {
+    var duplicatedClick bool
+
+    // 1단계: Redis 읽기
+    if err := u.cache.GetCache(ctx, transactionID, &duplicatedClick); err != nil {
+        if !errors.Is(err, cache.ErrCacheMiss) {
+            return fmt.Errorf("get cache: %w", err)
+        }
+    }
+
+    // 2단계: 중복 체크
+    if duplicatedClick {
+        return domain.ErrMultipleClick
+    }
+
+    // 3단계: Redis 쓰기
+    err := u.cache.SetCache(ctx, transactionID, true, 1*time.Minute)
+    if err != nil {
+        return fmt.Errorf("failed to set dup click action: %w", err)
+    }
+
+    return nil
+}
+```
+캐시를 확인하고 중복이면 에러를 반환, 그렇지 않으면 캐시에 기록한다. 얼핏 보면 문제가 없어 보인다.
+이는 **Check-Then-Set 패턴**으로 1단계(Get Cache)와 3단계(Set Cache)가 별도의 명령으로 실행된다.
+요청 간 텀(term) 이 긴 경우 중복 요청을 방지할 수 있지만 1초 내의 짧은 간격에 여러 요청이 들어오면
+두 명령 사이에 다른 요청이 끼어들 수 있어 원자성(atomicity)이 보장되지 않는다.
+
+<br/>
+
+### Race Condition 발생 시나리오
+
+동일한 사용자가 동시에 3개의 요청을 보냈을 때 다음과 같은 일이 발생한다:
+
+``` markdown
+T=0ms:    요청A, B, C 거의 동시 도착
+
+T=5ms:    요청A: GetCache → miss (캐시 없음)
+          요청B: GetCache → miss (A가 아직 SetCache 전)
+          요청C: GetCache → miss
+
+T=10ms:   요청A: SetCache(true)
+          요청B: SetCache(true) (덮어씀)
+          요청C: SetCache(true) (덮어씀)
+
+// 세 요청 모두 checkDuplicatedClick 통과
+
+T=15ms    C 가 가장 먼저 로직을 통과하며 DB 에 트랜잭션 기록 -> 200 반환
+          이후 A, B 는 DB 에 트랜잭션 기록된 내용을 보고 중복 요청으로 처리 -> 409 반환
+```
 
 
 ## Redis SETNX 로 안전하게 중복 요청 방지하기
 
-— Spin Lock도 아니고, Distributed Lock만도 아닌, Fail-Fast Soft Lock 이야기
-
-실제 운영 환경에서 API가 짧은 시간 동안 여러 번 호출되는 상황은 매우 흔하다.
-특히 포인트 전환, 결제 요청, 이벤트 참여와 같은 API는 짧은 시간 동안 여러 호출이 들어오면 중복 처리가 발생해 서비스에 문제를 만들 수 있다.
-
-이번 글에서는 이런 요청을 안전하게 막는 데 자주 사용되는 Redis SETNX에 대해 다룬다.
-그리고 우리가 흔히 오해하는 분산 락과 스핀락의 차이, master–slave 환경에서의 락 안정성,
-그리고 TTL 없는 락의 위험성까지 포함해, 실무에서 꼭 알고 있어야 할 내용을 정리한다.
+위 문제를 해결하려면 **Check와 Set을 원자적으로(atomically) 수행**해야 한다.
+Redis의 `SETNX` (SET if Not Exists)가 바로 이 용도로 설계된 명령이다.
 
 
-### 1. SETNX로 중복 요청을 막는 방법
+### 1. SETNX로 중복 요청 방지
 
-Redis의 SETNX(SET if Not Exists)는 특정 key가 없을 경우에만 값을 설정하는 명령이다.
+Redis의 SETNX 는 특정 key가 없을 경우에만 값을 설정(set)하는 명령이다.
 
+```go
 ok, err := rdb.SetNX(ctx, key, true, 1*time.Second).Result()
+```
+동일한 키로 1초 동안 여러 번 호출하더라도 최초 요청만 성공하고 나머지는 실패한다. 이 구조를 흔히 "Fail-Fast" 라 부른다.
 
+#### 개선된 코드
 
-이 방식은 중복 요청을 막는 데 매우 효과적이다.
-동일한 키로 1초 동안 여러 번 호출되면, 첫 요청만 성공하고 나머지는 실패한다.
-이 구조를 흔히 “Fail-Fast” 방식이라고 부른다.
+```go
+func (u *UseCase) checkDuplicatedClick(ctx context.Context, transactionID string) error {
+    // SETNX로 원자적 연산
+    success, err := u.cache.SetNX(ctx, transactionID, true, 1*time.Minute)
+    if err != nil {
+        return fmt.Errorf("failed to set dup click lock: %w", err)
+    }
+
+    // success가 false면 키가 이미 존재 = 중복 클릭
+    if !success {
+        return domain.ErrMultipleClick
+    }
+
+    return nil
+}
+```
+
+SETNX 의 장점:
+- **원자성**: 단일 Redis 명령으로 Check와 Set이 동시에 실행
+- **경쟁상태 방지**: 첫 번째 요청만 키 생성하고 true 반환
+- **간결함**: 3단계 로직 → 1단계로 간소화
+
+#### 동작 방식
+
+``` markdown
+T=0ms:     요청A, B, C 동시 도착
+
+T=5ms:     요청A: SetNX → 성공 (키 생성) → 계속 진행
+           요청B: SetNX → 실패 (키 존재) → 409 반환
+           요청C: SetNX → 실패 (키 존재) → 409 반환
+
+T=50ms:    요청A만 정상 처리 → 200 반환
+           요청B, C는 이미 409로 반환됨
+```
 
 즉,
 
-첫 번째 요청: SETNX 성공 → 처리 진행
-
-이후 1초 내 요청: SETNX 실패 → 중복 요청 차단
+- **첫 번째 요청**: SETNX 성공 → 처리 진행
+- **이후 1초 내 요청**: SETNX 실패 → 중복 요청 차단
 
 이 패턴은 **스핀 락이 아니라 try-lock(또는 soft lock)**에 해당한다.
 
@@ -49,21 +151,20 @@ ok, err := rdb.SetNX(ctx, key, true, 1*time.Second).Result()
 
 많은 개발자가 다음과 같은 상황을 떠올린다.
 
-“작업 끝났으니 key를 삭제해서 락을 해제해야 하지 않을까?”
+"작업 끝났으니 key를 삭제해서 락을 해제해야 하지 않을까?"
 
 그러나 중복 요청 방지에서는 DEL(key)가 오히려 문제다.
 
-첫 요청 → SETNX 성공
-
-작업 완료 후 key를 삭제
-
-TTL이 남아 있어야 하는데 바로 삭제
-
-같은 TTL 안에 들어온 두 번째 요청이 다시 SETNX 성공 → 중복 처리 발생
+``` markdown
+1. 첫 요청 → SETNX 성공
+2. 작업 완료 후 key를 삭제
+3. TTL이 남아 있어야 하는데 바로 삭제
+4. 같은 TTL 안에 들어온 두 번째 요청이 다시 SETNX 성공 → 중복 처리 발생
+```
 
 정리하면:
 
-중복 요청 방지에서는 key를 삭제하지 않고, TTL로 자연스럽게 만료되는 것이 정답이다.
+**중복 요청 방지에서는 key를 삭제하지 않고, TTL로 자연스럽게 만료되는 것이 정답이다.**
 
 ### 3. 이 방식은 스핀락인가?
 
@@ -126,15 +227,125 @@ master–slave 구조에서 락을 제대로 이해하는 것은 매우 중요�
 
 그 이유는 다음과 같다:
 
-락이 영구적으로 걸리는 상황은 대부분 “버그”에서 발생함
-
-언제든 새로운 요청이 들어올 가능성이 있음
-
-디버깅이 어려워짐
-
-운영 중 장애 대응이 거의 불가능해짐
+- 락이 영구적으로 걸리는 상황은 대부분 "버그"에서 발생함
+- 언제든 새로운 요청이 들어올 가능성이 있음
+- 디버깅이 어려워짐
+- 운영 중 장애 대응이 거의 불가능해짐
 
 따라서:
 
-락은 반드시 TTL을 가져야 한다.
-영구 상태가 필요하면 “락”이 아니라 “플래그”로 별도 관리해야 한다.
+**락은 반드시 TTL을 가져야 한다.**
+영구 상태가 필요하면 "락"이 아니라 "플래그"로 별도 관리해야 한다.
+
+
+## 테스트 결과: 100개 동시 요청에서도 완벽한 동작
+
+SETNX를 적용한 후, Go의 goroutine을 사용해 동시성 테스트를 진행했다.
+
+```go
+func TestCheckDuplicatedClickConcurrency(t *testing.T) {
+    var wg sync.WaitGroup
+    results := make(chan error, 100)
+
+    for i := 0; i < 100; i++ {
+        wg.Add(1)
+        go func() {
+            defer wg.Done()
+            success, err := cache.SetNX(ctx, transactionID, true, 1*time.Minute)
+            if err != nil {
+                results <- err
+            } else if !success {
+                results <- domain.ErrMultipleClick
+            } else {
+                results <- nil
+            }
+        }()
+    }
+
+    wg.Wait()
+    close(results)
+
+    // 결과 집계
+    successCount := 0
+    duplicateCount := 0
+    for err := range results {
+        if err == nil {
+            successCount++
+        } else if errors.Is(err, domain.ErrMultipleClick) {
+            duplicateCount++
+        }
+    }
+
+    // 검증: 정확히 1개만 성공, 99개는 중복
+    assert.Equal(t, 1, successCount)
+    assert.Equal(t, 99, duplicateCount)
+}
+```
+
+### 테스트 결과
+
+```bash
+=== RUN   TestCheckDuplicatedClickConcurrency
+=== RUN   TestCheckDuplicatedClickConcurrency/High_concurrency_stress_test_(100_requests)
+    luckybox_test.go:3032: High concurrency test completed in 20.458542ms
+    luckybox_test.go:3033: Success: 1, Duplicates: 99
+--- PASS: TestCheckDuplicatedClickConcurrency (0.02s)
+PASS
+```
+
+**100개의 동시 요청 중 정확히 1개만 성공**하고, 나머지 99개는 모두 중복으로 거부되었다.
+처리 시간은 불과 **20ms**로, 성능 저하 없이 완벽한 동시성 제어가 가능함을 확인했다.
+
+
+## Before & After 비교
+
+| 항목 | Before (Get + Set) | After (SETNX) |
+|------|-------------------|---------------|
+| **원자성** | 없음 (race condition 발생) | 보장 |
+| **Redis 호출 수** | 2회 (GET + SET) | 1회 (SETNX) |
+| **동시 요청 처리** | 비정상 (마지막 요청이 성공) | 정상 (첫 요청만 성공) |
+| **코드 복잡도** | 높음 (3단계 로직) | 낮음 (1단계 로직) |
+| **성능** | 느림 (2번 네트워크 왕복) | 빠름 (1번 네트워크 왕복) |
+
+
+## 결론
+
+### 1. Check-Then-Act 패턴은 위험하다 ?
+
+분산 환경에서 읽기와 쓰기를 분리하면 그 사이에 다른 요청이 끼어들 수 있다.
+**원자적 연산(atomic operation)**을 사용해야 한다.
+
+### 2. 로그만으로는 Race Condition을 발견하기 어렵다
+
+이번 케이스처럼 타이밍에 따라 드물게 발생하는 문제는 평소엔 눈치채기 어렵다.
+**동시성 테스트(concurrency test)**를 통해 미리 검증해야 한다.
+
+### 3. Redis의 원자적 명령을 활용하자
+
+- **SETNX**: 키가 없을 때만 설정 (중복 요청 방지, 분산 락)
+- **INCR**: 카운터 증가 (조회수, 좋아요 수 등)
+- **Lua Script**: 여러 명령을 하나의 원자적 작업으로 실행
+
+### 4. TTL은 필수다
+
+락을 영구적으로 걸면 장애 발생 시 복구가 불가능하다.
+모든 락은 **반드시 TTL을 가져야** 하며, 적절한 타임아웃 시간을 설정해야 한다.
+
+
+## 결론
+
+프로덕션 환경에서 발견한 이상한 로그 하나가 중요한 문제를 드러냈다.
+Get-Then-Set 패턴의 Race Condition은 겉으로는 잘 작동하는 것처럼 보이지만,
+동시 요청이 몰리는 순간 예상치 못한 동작을 만들어낸다.
+
+Redis의 SETNX는 이런 문제를 간단하고 효과적으로 해결해준다.
+**원자성, 성능, 간결함** 모두를 얻을 수 있는 솔루션이다.
+
+중복 요청 방지뿐만 아니라 분산 락, 레이트 리미팅, 멱등성 보장 등
+다양한 상황에서 SETNX와 같은 원자적 연산이 핵심적인 역할을 한다.
+
+**결국, 분산 시스템에서 동시성 문제를 다룰 때는
+"원자적으로 처리할 수 있는가?"를 항상 먼저 고민해야 한다.**
+
+- 무의식적으로 분산락이라는 단어를 사용해서 락이 분산되어 적용된다는 의미인가 생각했는데,
+분산락 이라는 이름의 분산은 분산 서버를 의미하는거지 레디스 인스턴스마다 락이 분산되어 걸린다는 뜻이 아니다.
