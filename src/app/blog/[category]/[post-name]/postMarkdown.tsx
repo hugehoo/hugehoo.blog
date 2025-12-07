@@ -182,7 +182,7 @@ const PostMarkdown = ({ params }: Props) => {
                 style={{
                   fontSize: '0.99em',
                   marginBottom: '0.5em',
-                  lineHeight: '1.81em',
+                  lineHeight: '2.1em',
                 }}
                 {...props}
               />
