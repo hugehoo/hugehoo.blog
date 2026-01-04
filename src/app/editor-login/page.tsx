@@ -23,7 +23,7 @@ export default function EditorLoginPage() {
       });
 
       if (response.ok) {
-        router.push('/editor-secret-2024');
+        router.push('/editor-elric-lim');
       } else {
         const data = await response.json();
         setError(data.error || 'Invalid password');

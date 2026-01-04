@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 
 export function middleware(request: NextRequest) {
   // Check if the request is for the editor or editor API
-  const isEditorRoute = request.nextUrl.pathname.startsWith('/editor-secret-2024') ||
+  const isEditorRoute = request.nextUrl.pathname.startsWith('/editor-elric-lim') ||
                         request.nextUrl.pathname.startsWith('/api/editor');
   
   // Skip auth check for the auth endpoint itself
@@ -25,5 +25,5 @@ export function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ['/editor-secret-2024/:path*', '/api/editor/:path*'],
+  matcher: ['/editor-elric-lim/:path*', '/api/editor/:path*'],
 };
