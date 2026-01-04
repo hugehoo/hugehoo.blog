@@ -1,17 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
-
-const EDITOR_PASSWORD = process.env.EDITOR_PASSWORD;
+import { validateEditorConfig, ENV } from '@/config/env';
 
 export async function POST(request: NextRequest) {
   try {
     const { password } = await request.json();
     
-    if (!EDITOR_PASSWORD) {
-      console.error('EDITOR_PASSWORD environment variable is not set');
-      return NextResponse.json({ error: 'Editor password not configured' }, { status: 500 });
-    }
+    const { password: editorPassword } = validateEditorConfig();
     
-    if (password === EDITOR_PASSWORD) {
+    if (password === editorPassword) {
       // Create a simple session token
       const token = Buffer.from(`editor:${Date.now()}`).toString('base64');
       
@@ -20,7 +16,7 @@ export async function POST(request: NextRequest) {
       // Set HTTP-only cookie that expires in 24 hours
       response.cookies.set('editor-session', token, {
         httpOnly: true,
-        secure: process.env.NODE_ENV === 'production',
+        secure: ENV.NODE_ENV === 'production',
         sameSite: 'strict',
         maxAge: 60 * 60 * 24, // 24 hours
         path: '/',
@@ -30,7 +26,11 @@ export async function POST(request: NextRequest) {
     } else {
       return NextResponse.json({ error: 'Invalid password' }, { status: 401 });
     }
-  } catch (error) {
-    return NextResponse.json({ error: 'Authentication failed' }, { status: 500 });
+  } catch (error: any) {
+    console.error('Auth error:', error);
+    return NextResponse.json({ 
+      error: 'Authentication failed',
+      details: error.message 
+    }, { status: 500 });
   }
 }

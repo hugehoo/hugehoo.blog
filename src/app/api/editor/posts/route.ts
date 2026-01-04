@@ -1,22 +1,16 @@
 import { NextResponse } from 'next/server';
-
-const GITHUB_TOKEN = process.env.GITHUB_TOKEN;
-const GITHUB_OWNER = process.env.GITHUB_OWNER;
-const GITHUB_REPO = process.env.GITHUB_REPO;
-const GITHUB_BRANCH = process.env.GITHUB_BRANCH || 'main';
+import { validateGitHubConfig } from '@/config/env';
 
 export async function GET() {
   try {
-    if (!GITHUB_TOKEN || !GITHUB_OWNER || !GITHUB_REPO) {
-      return NextResponse.json({ error: 'GitHub configuration missing' }, { status: 500 });
-    }
+    const { token, owner, repo, branch } = validateGitHubConfig();
 
     // Fetch the contents of the src/posts directory
     const response = await fetch(
-      `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/contents/src/posts?ref=${GITHUB_BRANCH}`,
+      `https://api.github.com/repos/${owner}/${repo}/contents/src/posts?ref=${branch}`,
       {
         headers: {
-          'Authorization': `token ${GITHUB_TOKEN}`,
+          'Authorization': `token ${token}`,
           'Accept': 'application/vnd.github.v3+json',
         },
       }
@@ -38,8 +32,11 @@ export async function GET() {
       }));
 
     return NextResponse.json({ posts });
-  } catch (error) {
+  } catch (error: any) {
     console.error('Failed to fetch posts:', error);
-    return NextResponse.json({ error: 'Failed to fetch posts' }, { status: 500 });
+    return NextResponse.json({ 
+      error: 'Failed to fetch posts',
+      details: error.message 
+    }, { status: 500 });
   }
 }

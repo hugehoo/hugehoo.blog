@@ -1,18 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
-
-const GITHUB_TOKEN = process.env.GITHUB_TOKEN;
-const GITHUB_OWNER = process.env.GITHUB_OWNER;
-const GITHUB_REPO = process.env.GITHUB_REPO;
-const GITHUB_BRANCH = process.env.GITHUB_BRANCH || 'main';
+import { validateGitHubConfig } from '@/config/env';
 
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
     const { content, title, date, description, category, slug, open, isNewPost, existingPath, sha } = body;
 
-    if (!GITHUB_TOKEN || !GITHUB_OWNER || !GITHUB_REPO) {
-      return NextResponse.json({ error: 'GitHub configuration missing' }, { status: 500 });
-    }
+    const { token, owner, repo, branch } = validateGitHubConfig();
 
     const frontmatter = `---
 title: "${title}"
@@ -38,7 +32,7 @@ ${content}`;
     const requestBody: any = {
       message: `Update post: ${title}`,
       content: encodedContent,
-      branch: GITHUB_BRANCH,
+      branch: branch,
     };
 
     // If updating existing file, include SHA
@@ -48,11 +42,11 @@ ${content}`;
 
     // Create or update file via GitHub API
     const response = await fetch(
-      `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/contents/${filePath}`,
+      `https://api.github.com/repos/${owner}/${repo}/contents/${filePath}`,
       {
         method: 'PUT',
         headers: {
-          'Authorization': `token ${GITHUB_TOKEN}`,
+          'Authorization': `token ${token}`,
           'Accept': 'application/vnd.github.v3+json',
           'Content-Type': 'application/json',
         },

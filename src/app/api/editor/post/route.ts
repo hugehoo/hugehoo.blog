@@ -1,10 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import matter from 'gray-matter';
-
-const GITHUB_TOKEN = process.env.GITHUB_TOKEN;
-const GITHUB_OWNER = process.env.GITHUB_OWNER;
-const GITHUB_REPO = process.env.GITHUB_REPO;
-const GITHUB_BRANCH = process.env.GITHUB_BRANCH || 'main';
+import { validateGitHubConfig } from '@/config/env';
 
 export async function GET(request: NextRequest) {
   try {
@@ -15,16 +11,14 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Path is required' }, { status: 400 });
     }
 
-    if (!GITHUB_TOKEN || !GITHUB_OWNER || !GITHUB_REPO) {
-      return NextResponse.json({ error: 'GitHub configuration missing' }, { status: 500 });
-    }
+    const { token, owner, repo, branch } = validateGitHubConfig();
 
     // Fetch file content from GitHub
     const response = await fetch(
-      `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/contents/${postPath}?ref=${GITHUB_BRANCH}`,
+      `https://api.github.com/repos/${owner}/${repo}/contents/${postPath}?ref=${branch}`,
       {
         headers: {
-          'Authorization': `token ${GITHUB_TOKEN}`,
+          'Authorization': `token ${token}`,
           'Accept': 'application/vnd.github.v3+json',
         },
       }
