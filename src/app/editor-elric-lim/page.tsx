@@ -113,17 +113,6 @@ export default function SecretEditorPage() {
   };
 
 
-  const generateFrontmatter = () => {
-    return `---
-title: "${title}"
-date: ${date}
-desc: "${description}"
-category: "${category}"
-open: ${open}
----
-
-${content}`;
-  };
 
   return (
     <div className="min-h-screen bg-gray-50 p-4">
@@ -235,25 +224,14 @@ ${content}`;
             </div>
           </div>
           
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium mb-2">Markdown</label>
-              <textarea
-                value={content}
-                onChange={(e) => setContent(e.target.value)}
-                className="w-full h-96 px-3 py-2 border rounded-md font-mono text-sm"
-                placeholder="Write your markdown content here..."
-              />
-            </div>
-            
-            <div>
-              <label className="block text-sm font-medium mb-2">Preview</label>
-              <div className="w-full h-96 px-3 py-2 border rounded-md overflow-auto bg-gray-50">
-                <div className="prose max-w-none">
-                  <pre className="whitespace-pre-wrap">{generateFrontmatter()}</pre>
-                </div>
-              </div>
-            </div>
+          <div>
+            <label className="block text-sm font-medium mb-2">Markdown Content</label>
+            <textarea
+              value={content}
+              onChange={(e) => setContent(e.target.value)}
+              className="w-full h-96 px-3 py-2 border rounded-md font-mono text-sm resize-y"
+              placeholder="Write your markdown content here..."
+            />
           </div>
         </div>
       </div>
