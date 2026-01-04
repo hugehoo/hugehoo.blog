@@ -7,6 +7,7 @@ export async function POST(request: NextRequest) {
     const { password } = await request.json();
     
     if (!EDITOR_PASSWORD) {
+      console.error('EDITOR_PASSWORD environment variable is not set');
       return NextResponse.json({ error: 'Editor password not configured' }, { status: 500 });
     }
     
