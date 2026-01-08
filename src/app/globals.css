@@ -109,7 +109,7 @@ pre {
 /* Post Content Wrapper */
 .post-content-wrapper {
   display: flex;
-  gap: 4.5rem;
+  gap: 3rem;
   position: relative;
 }
 
