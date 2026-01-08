@@ -36,9 +36,10 @@ interface Props {
     content: string;
     date: Date;
   };
+  containerStyles?: any;
 }
 
-const PostMarkdown = ({ params }: Props) => {
+const PostMarkdown = ({ params, containerStyles }: Props) => {
   const { decodedTitle, content, date } = params;
   const generateIdFromText = (text: string) => {
     return text.replace(/\s+/g, '-').toLowerCase();
@@ -60,9 +61,9 @@ const PostMarkdown = ({ params }: Props) => {
         </div>
       </div>
 
-      <div>
-        <TOC content={content} />
-        <ReactMarkdown
+      <div className="post-content-wrapper">
+        <article className="post-content">
+          <ReactMarkdown
           remarkPlugins={[remarkGfm]}
           rehypePlugins={[rehypeRaw]}
           components={{
@@ -294,8 +295,12 @@ const PostMarkdown = ({ params }: Props) => {
             ),
           }}
         >
-          {content}
-        </ReactMarkdown>
+            {content}
+          </ReactMarkdown>
+        </article>
+        <aside className="toc-sidebar">
+          <TOC content={content} />
+        </aside>
       </div>
     </>
   );

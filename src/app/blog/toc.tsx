@@ -1,3 +1,5 @@
+'use client';
+
 import React, { useEffect, useState } from 'react';
 
 interface TOCProps {
@@ -7,19 +9,25 @@ interface TOCProps {
 type matchTitle = {
   index: number;
   title: string;
+  id: string;
 };
 
 const TOC = ({ content }: TOCProps) => {
   const [toc, setToc] = useState<matchTitle[]>([]);
+  const [activeId, setActiveId] = useState<string>('');
+
   useEffect(() => {
     const headings: matchTitle[] = [];
     const regex = /^(#{1,3})\s(.+)$/;
     content.split('\n').forEach((line) => {
       const match = regex.exec(line);
       if (match) {
+        const title = match[2];
+        const id = title.replace(/\s+/g, '-').toLowerCase();
         headings.push({
           index: match[1].length,
-          title: match[2],
+          title: title,
+          id: id,
         });
       }
     });
@@ -27,13 +35,42 @@ const TOC = ({ content }: TOCProps) => {
     setToc(headings);
   }, [content]);
 
+  useEffect(() => {
+    const observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (entry.isIntersecting) {
+            setActiveId(entry.target.id);
+          }
+        });
+      },
+      {
+        rootMargin: '-20% 0% -70% 0%',
+      }
+    );
+
+    const headingElements = toc.map((heading) => 
+      document.getElementById(heading.id)
+    ).filter(Boolean);
+
+    headingElements.forEach((element) => {
+      if (element) observer.observe(element);
+    });
+
+    return () => {
+      headingElements.forEach((element) => {
+        if (element) observer.unobserve(element);
+      });
+    };
+  }, [toc]);
+
   const scrollToHeading = (id: string) => {
     const element = document.getElementById(id);
     if (element) {
-      element.scrollIntoView({
-        behavior: 'smooth',
-        block: 'start',
-      });
+      const yOffset = -80;
+      const y = element.getBoundingClientRect().top + window.pageYOffset + yOffset;
+      window.scrollTo({ top: y, behavior: 'smooth' });
+      setActiveId(id);
     }
   };
 
@@ -42,20 +79,20 @@ const TOC = ({ content }: TOCProps) => {
   }
 
   return (
-    <div className="toc">
-      <h3>Table of Contents</h3>
-      <ul className="list-disc list-inside">
-        {toc.map((heading, index) => {
-          const id = heading.title.replace(/\s+/g, '-').toLowerCase(); // id 형식 맞추기
-          const paddingClass = heading.index === 3 ? 'pl-4' : ''; // index가 3일 때만 padding 적용
+    <nav className="toc-container">
+      <ul className="toc-list">
+        {toc.map((heading) => {
+          const isActive = activeId === heading.id;
+          const levelClass = `toc-item toc-item-h${heading.index}`;
 
           return (
-            <li key={heading.title} className={paddingClass}>
+            <li key={heading.id} className={levelClass}>
               <a
-                href={`#${id}`}
+                href={`#${heading.id}`}
+                className={`toc-link ${isActive ? 'active' : ''}`}
                 onClick={(e) => {
                   e.preventDefault();
-                  scrollToHeading(id);
+                  scrollToHeading(heading.id);
                 }}
               >
                 {heading.title.replace(/<[^>]*>|[*_~`]/g, '')}
@@ -64,7 +101,7 @@ const TOC = ({ content }: TOCProps) => {
           );
         })}
       </ul>
-    </div>
+    </nav>
   );
 };
 

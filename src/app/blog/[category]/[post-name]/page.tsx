@@ -1,4 +1,3 @@
-import { useState, useEffect } from 'react';
 import styles from '../../TeamPage.module.css';
 import path from 'path';
 import { sync } from 'glob';
@@ -74,17 +73,19 @@ const Post = ({ params }: Props) => {
   const postDate = post?.data?.date ? new Date(post.data.date) : new Date();
 
   return (
-    <div className={styles.textContainer}>
-      <div className={styles.wrapper}>
-        <PostMarkdown
-          params={{
-            decodedTitle,
-            content: post.content,
-            date: postDate,
-          }}
-        />
+    <>
+      <div className={`${styles.textContainer} blog-layout-container`}>
+        <div className={styles.wrapper}>
+          <PostMarkdown
+            params={{
+              decodedTitle,
+              content: post.content,
+              date: postDate,
+            }}
+          />
+        </div>
       </div>
-    </div>
+    </>
   );
 };
 
