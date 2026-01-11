@@ -1,35 +1,99 @@
 ---
-title: featureflag evaluation p99 latency 개선
+title: How I Fixed the P99 Latency Problem I Created
 date: 2026-01-11
-desc: 내가 만든 latency 내가 개선하기, 내만내개
+desc: A tale of unintended consequences and the importance of validating assumptions
 thumbnail: /team-member-1.jpeg
 ogImage: /b-tree-2.png
 category: 'p99'
 open: true
 ---
 
-## 서론
+## Introduction
 
+"Why is the P99 latency so much higher than P95?"
 
-내용 정리 
-- there is a feature flag s3 exporter. 
-- it exports evaluation data to s3 for data analysis purpopse. 
-- the export interval is 1min and there is 120 pods average, while increase to 200 pods on peak. 
-- The s3 throughput exceeding error occurs when lots of pods simultaneously trying to export to s3.
-- so i added jitter and retry logic when export to s3. jitter for 7seconds and retry for 5 times. 
-- Throughput exceeding error solved. and when few weeks later i noticed that p99 latency of feature flag evaluation api was way high than p95(30ms). 
-- at first i didn't realized it's related to s3 exports, because that api was used for feature flag evaluation. 
-- but when i check the datadog dashboard, i find out that the time i deployed jitter in s3 exports, it started to increase p99 latency too. 
+One day, while checking our monitoring dashboard, I noticed something strange. The Feature Flag Evaluation API's P95 latency looked fine, but the P99 was way above 30ms. At first, I had no idea what was causing this. But after some investigation, I discovered that code I had deployed a few weeks earlier was the culprit. This is the story of how I found and fixed the problem.
 
-- so the jitter was the cause but i need more solid facts that jitter was the bottleneck of evaluation api. 
-- our project is using go-feature-flag opensource and it s operation is working as eval -> s3 export when buffer is full or interval time hits -> applied jitter -> exports to s3.  
-- the reason why i added jitter was to scatter the time for avoiding s3 partition throughput exceeding error.
-- k8s pods are usually created not concurrently so that they exports data at all different intervals. (this was my fault because i thought the pods would export data at all same time if there is no jitter.)
-- so i removed jitter and just applied retry logic to prepare for export failuer. And it still works! so found out that jitter wasn't that usefull for export error. 
-- and also i adjusted the export interval time to 3min from 1min originally. because i found out that 1min interval only exports 5K data while the maximum buffer is 100K. It turns out that 3min interval also exports only 16K events which still have room for maximum buffer size. 
+## Background: The S3 Exporter
 
+Our team operates an S3 Exporter that sends Feature Flag evaluation data to S3 for analytics purposes. Here's the environment it runs in:
 
-- conclusion
-  - export interval : 1min -> 3min
-  - jitter: 7seconds -> 0
-  - retry: 3 -> 5
+- **Export interval**: 1 minute
+- **Average pod count**: 120 (scaling up to 200 during peak hours)
+- **Library used**: go-feature-flag open source
+
+The problem started here. When many pods tried to export data to S3 simultaneously, we began seeing **S3 Partition Throughput Exceeding errors**.
+
+## First Attempt: Adding Jitter and Retry
+
+To solve the S3 throughput errors, I implemented the following:
+
+1. **Jitter**: 7 seconds of random delay
+2. **Retry logic**: Up to 5 retry attempts
+
+After this deployment, the S3 throughput errors disappeared. Problem solved! ...or so I thought.
+
+## The Unexpected Side Effect
+
+A few weeks later, I noticed that the Feature Flag Evaluation API's P99 latency was abnormally high on our Datadog dashboard. At first, I didn't think there could be any connection between S3 exports and the Evaluation API. They're completely different features, right?
+
+But when I examined the time-series graph more closely, I found that the P99 latency spike occurred at the **exact same time I deployed the jitter code**.
+
+## Root Cause Analysis
+
+I took another look at how go-feature-flag operates:
+
+```
+Evaluation request → Store data in buffer → (when buffer is full or interval reached) → Apply jitter → Export to S3
+```
+
+Here was the key insight: **Evaluation and Export run within the same process**. The delay caused by jitter was affecting evaluation response times as well.
+
+## Did We Really Need Jitter?
+
+I added jitter because I assumed "all pods will try to export at the same time, causing throughput errors." But I overlooked one important fact:
+
+**Kubernetes pods are not created concurrently.**
+
+Each pod starts at a different time, which means their export timings are naturally distributed. In other words, there was already some level of distribution even without jitter.
+
+To validate this hypothesis, I removed the jitter and kept only the retry logic. The result? **Everything worked fine without any S3 throughput errors.**
+
+## Additional Optimization: Adjusting Export Interval
+
+While analyzing the code, I discovered another inefficiency:
+
+- **Maximum buffer size**: 100,000 events
+- **Actual data exported per 1-minute interval**: ~5,000 events
+- **Actual data exported per 3-minute interval**: ~16,000 events
+
+Exporting every minute was far more frequent than necessary given our buffer capacity. Even with a 3-minute interval, we had plenty of headroom, and we could reduce unnecessary S3 calls.
+
+## Final Changes
+
+| Setting | Before | After |
+|---------|--------|-------|
+| Export Interval | 1 min | 3 min |
+| Jitter | 7 sec | 0 sec |
+| Retry Count | 3 | 5 |
+
+## Results
+
+After applying these changes:
+- P99 latency returned to normal levels
+- No S3 throughput errors
+- Reduced S3 call frequency, leading to cost savings
+
+## Lessons Learned
+
+Here's what I took away from this experience:
+
+1. **Validate your assumptions**: My assumption that "pods will export simultaneously" was wrong. If I had properly understood how Kubernetes works, I wouldn't have added unnecessary jitter in the first place.
+
+2. **Consider side effects**: I never expected that changes to the export logic would affect Evaluation API performance. Always think about cascading impacts when modifying code.
+
+3. **Monitoring holds the answers**: The Datadog time-series graph was crucial in finding the root cause. Correlating deployment timestamps with metric changes is essential.
+
+4. **Periodically review your configurations**: I should have questioned from the start whether a 1-minute export interval was appropriate for our actual data volume.
+
+In the end, I had to fix the latency problem I created myself. But the lessons learned from this experience will serve me well in future development.
