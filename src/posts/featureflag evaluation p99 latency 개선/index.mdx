@@ -1,0 +1,35 @@
+---
+title: featureflag evaluation p99 latency 개선
+date: 2026-01-11
+desc: 내가 만든 latency 내가 개선하기, 내만내개
+thumbnail: /team-member-1.jpeg
+ogImage: /b-tree-2.png
+category: 'p99'
+open: true
+---
+
+## 서론
+
+
+내용 정리 
+- there is a feature flag s3 exporter. 
+- it exports evaluation data to s3 for data analysis purpopse. 
+- the export interval is 1min and there is 120 pods average, while increase to 200 pods on peak. 
+- The s3 throughput exceeding error occurs when lots of pods simultaneously trying to export to s3.
+- so i added jitter and retry logic when export to s3. jitter for 7seconds and retry for 5 times. 
+- Throughput exceeding error solved. and when few weeks later i noticed that p99 latency of feature flag evaluation api was way high than p95(30ms). 
+- at first i didn't realized it's related to s3 exports, because that api was used for feature flag evaluation. 
+- but when i check the datadog dashboard, i find out that the time i deployed jitter in s3 exports, it started to increase p99 latency too. 
+
+- so the jitter was the cause but i need more solid facts that jitter was the bottleneck of evaluation api. 
+- our project is using go-feature-flag opensource and it s operation is working as eval -> s3 export when buffer is full or interval time hits -> applied jitter -> exports to s3.  
+- the reason why i added jitter was to scatter the time for avoiding s3 partition throughput exceeding error.
+- k8s pods are usually created not concurrently so that they exports data at all different intervals. (this was my fault because i thought the pods would export data at all same time if there is no jitter.)
+- so i removed jitter and just applied retry logic to prepare for export failuer. And it still works! so found out that jitter wasn't that usefull for export error. 
+- and also i adjusted the export interval time to 3min from 1min originally. because i found out that 1min interval only exports 5K data while the maximum buffer is 100K. It turns out that 3min interval also exports only 16K events which still have room for maximum buffer size. 
+
+
+- conclusion
+  - export interval : 1min -> 3min
+  - jitter: 7seconds -> 0
+  - retry: 3 -> 5
