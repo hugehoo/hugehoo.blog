@@ -1,0 +1,422 @@
+---
+title: 'go-interface'
+date: 2026-01-20
+desc: Go의 암시적 인터페이스와 Consumer Side 패턴
+thumbnail: /team-member-1.jpeg
+category: Go
+open: true
+---
+
+### 이 글에서 다루는 내용
+
+- Go의 암시적 인터페이스 구현(Duck Typing)
+- 다른 언어와 Go 인터페이스의 차이
+- 인터페이스를 소비자 측(Consumer Side)에 두는 이유
+- 의존성 주입 패턴 적용
+
+<br />
+
+## 제공자 측 vs 소비자 측, 인터페이스를 어디에 둘 것인가?
+
+![image1.png](./image1.png)
+인터페이스를 정의할 때 두 가지 선택지가 있다.
+
+```bash
+- 제공자 측(Producer Side): 구체적인 구현이 있는 패키지에 인터페이스를 정의
+- 소비자 측(Consumer Side): 인터페이스를 사용하는 패키지에 인터페이스를 정의
+```
+
+Java나 C# 개발자라면 제공자 측에 인터페이스를 두는 방식이 익숙할 것이다.
+하지만 Go에서는 **소비자 측에 인터페이스를 정의하는 것**이 관례이자 권장 패턴이다.
+왜 그럴까? 이를 이해하려면 먼저 Go 인터페이스가 다른 언어와 어떻게 다른지 알아야 한다.
+
+---
+
+## 다른 언어 vs Go: 인터페이스의 근본적 차이
+
+### Java의 명시적 인터페이스
+
+Java 는 인터페이스를 **명시적으로 선언**하여 구현한다.
+
+```java
+// Java
+public interface CustomerGetter {
+    List<Customer> getAllCustomers();
+}
+
+// 구현체는 반드시 implements 키워드를 사용해야 한다
+public class ConvenienceStore implements CustomerGetter {
+    @Override
+    public List<Customer> getAllCustomers() {
+        // ...
+    }
+}
+```
+
+이 방식에서는 구현체가 인터페이스의 존재를 **반드시 알고 있어야** 한다. `implements` 키워드를 통해 "나는 이 인터페이스를 구현하겠다"고 명시적으로 선언해야 하기 때문이다. 이는 인터페이스와 구현체 사이에 **강한 계약 관계**가 형성된다는 의미이기도 한데, 구현체를 작성하는 시점에 이미 인터페이스가 존재해야 하고, 구현체는 그 인터페이스에 종속된다.
+
+이런 구조에서 새로운 인터페이스를 도입하려면 어떻게 될까? 기존에 작성된 구현체들을 일일이 찾아가서 `implements NewInterface`를 추가해줘야 한다. 라이브러리나 외부 패키지의 타입이라면 아예 수정이 불가능할 수도 있다.
+
+### Go의 암시적 인터페이스 (Duck Typing)
+
+Go는 완전히 다르다. **메서드 시그니처만 일치하면 자동으로 인터페이스를 구현한 것으로 간주**된다.
+
+```go
+// Go
+type CustomerGetter interface {
+    GetAllCustomers() ([]Customer, error)
+}
+
+// implements 같은 키워드가 없다
+// 그냥 메서드만 맞으면 된다
+type ConvenienceStore struct { ... }
+func (s *ConvenienceStore) GetAllCustomers() ([]Customer, error) {
+    // ...
+}
+```
+
+여기서 핵심은 구현체가 인터페이스의 존재를 **전혀 몰라도 된다**는 점이다. `ConvenienceStore`를 작성하는 개발자는 `CustomerGetter`라는 인터페이스가 어딘가에 있는지 없는지 신경 쓸 필요가 없다. 그저 자신에게 필요한 메서드를 정의할 뿐이다.
+
+이런 설계 철학 뒤에는 **"추상화는 발견하는 것이지, 미리 설계하는 것이 아니다"**라는 Go의 실용주의가 깔려 있다. 처음부터 완벽한 인터페이스를 설계하려고 애쓰기보다, 코드가 성장하면서 자연스럽게 공통 패턴이 드러날 때 인터페이스를 정의하는 방식이다.
+
+덕분에 새로운 인터페이스를 도입하더라도 기존 코드는 전혀 수정할 필요가 없다. 이미 적절한 메서드를 가지고 있다면 자동으로 그 인터페이스를 만족하기 때문이다. 이것이 바로 **인터페이스를 소비자 측에 두는 것이 자연스러운 이유**다.
+
+---
+
+## 왜 소비자 측(Consumer Side)에 인터페이스를 두는가?
+
+실제 예제를 통해 살펴보자.
+
+### 프로젝트 구조
+
+```bash
+scrapper/
+├── client/
+│   └── client.go      # 인터페이스 정의 + Client (소비자)
+├── store/
+│   └── store.go       # ConvenienceStore (구현체 1)
+└── mart/
+    └── mart.go        # MartStore (구현체 2)
+```
+
+핵심은 **인터페이스가 client 패키지에 있다**는 점이다.
+store와 mart 패키지는 인터페이스의 존재조차 모른다.
+
+---
+
+## 코드로 이해하기
+
+### 1. store/store.go - 구현체 (인터페이스를 모른다)
+
+```go
+package store
+
+type Customer struct {
+	Name string
+}
+
+type ConvenienceStore struct {
+	customers []Customer
+}
+
+func NewConvenienceStore() *ConvenienceStore {
+	return &ConvenienceStore{
+		customers: []Customer{
+			{Name: "Alice"},
+			{Name: "Bob"},
+			{Name: "Charlie"},
+		},
+	}
+}
+
+// 이 메서드는 그냥 자신의 역할을 수행할 뿐이다
+// customerGetter 인터페이스? 그런 건 모른다
+func (s *ConvenienceStore) GetAllCustomers() ([]Customer, error) {
+	return s.customers, nil
+}
+```
+
+store 패키지는 어떤 인터페이스도 import하지 않는다.
+그저 `GetAllCustomers`라는 메서드를 가진 구조체를 제공할 뿐이다.
+
+### 2. mart/mart.go - 또 다른 구현체 (역시 인터페이스를 모른다)
+
+```go
+package mart
+
+import "blog-gopher/scrapper/store"
+
+type MartStore struct {
+	customers []store.Customer
+}
+
+func NewMartStore() *MartStore {
+	return &MartStore{
+		customers: []store.Customer{
+			{Name: "Mart Customer 1"},
+			{Name: "Mart Customer 2"},
+			{Name: "Mart Customer 3"},
+		},
+	}
+}
+
+// MartStore도 마찬가지. 인터페이스의 존재를 알 필요가 없다
+func (m *MartStore) GetAllCustomers() ([]store.Customer, error) {
+	return m.customers, nil
+}
+```
+
+mart 패키지도 마찬가지다. 동일한 시그니처의 메서드를 가졌지만, 어떤 인터페이스를 구현하겠다는 선언은 없다.
+
+### 3. client/client.go - 소비자가 인터페이스를 정의한다
+
+```go
+package client
+
+import (
+	"fmt"
+	"blog-gopher/scrapper/store"
+)
+
+// 인터페이스는 여기, 소비자 측에서 정의한다
+// 소문자로 시작하므로 이 패키지 내부에서만 사용된다
+type customerGetter interface {
+	GetAllCustomers() ([]store.Customer, error)
+}
+
+type Client struct {
+	store customerGetter  // 구체 타입이 아닌 인터페이스에 의존
+}
+
+// 의존성 주입: 인터페이스 타입을 받는다
+func NewClient(s customerGetter) *Client {
+	return &Client{store: s}
+}
+
+func (c *Client) PrintAllCustomers() error {
+	customers, err := c.store.GetAllCustomers()
+	if err != nil {
+		return err
+	}
+	for _, customer := range customers {
+		fmt.Printf("Customer: %s\n", customer.Name)
+	}
+	return nil
+}
+```
+
+여기서 주목할 점은 `customerGetter` 인터페이스가 client 패키지 안에 정의되어 있다는 것이다. 소문자로 시작하기 때문에 이 인터페이스는 패키지 외부로 노출되지 않는다(unexported). 굳이 외부에 공개할 이유가 없기 때문이다 — 이 인터페이스는 오직 client 패키지 내부에서 의존성을 추상화하기 위한 용도로만 사용된다.
+
+이 패턴의 핵심은 **소비자가 자신이 필요로 하는 것을 스스로 정의한다**는 점이다. Client는 "나는 `GetAllCustomers` 메서드를 가진 무언가가 필요해"라고 선언하고, 그 조건을 만족하는 어떤 타입이든 받아들일 수 있다.
+
+---
+
+## 이 패턴의 이점
+
+### 1. 의존성 방향이 올바르다
+
+```
+[client] ──────────────────────────────────────────┐
+   │                                               │
+   │ 인터페이스 정의: customerGetter               │
+   │ "GetAllCustomers() 메서드가 필요해"            │
+   │                                               │
+   └───────────────────────────────────────────────┘
+         ▲                        ▲
+         │                        │
+         │ 암시적 구현            │ 암시적 구현
+         │                        │
+   [store]                  [mart]
+   ConvenienceStore            MartStore
+```
+
+이 다이어그램을 보면 의존성 화살표가 구현체에서 소비자 방향으로 향하고 있다. client 패키지는 store나 mart 패키지를 직접 import할 필요가 없다(Customer 타입 정도만 제외하면). 반대로 store와 mart도 client의 존재를 전혀 모른다.
+
+이런 구조에서는 **순환 의존이 구조적으로 발생할 수 없다.** A가 B를 모르고, B도 A를 모르는데 어떻게 순환이 생기겠는가? 패키지 간 결합도를 낮추는 데 있어서 이보다 깔끔한 방법은 없다.
+
+### 2. 필요한 것만 요구한다 (Interface Segregation)
+
+```go
+// 좋은 예: 필요한 메서드만 정의
+type customerGetter interface {
+	GetAllCustomers() ([]store.Customer, error)
+}
+
+// 나쁜 예: 제공자가 정의한 거대한 인터페이스
+type CustomerRepository interface {
+	GetAllCustomers() ([]Customer, error)
+	GetCustomerByID(id int) (*Customer, error)
+	CreateCustomer(c Customer) error
+	UpdateCustomer(c Customer) error
+	DeleteCustomer(id int) error
+}
+```
+
+제공자가 인터페이스를 정의하면 보통 "앞으로 필요할지도 모르는" 모든 메서드를 다 넣게 된다. 결과적으로 5개, 10개의 메서드를 가진 거대한 인터페이스가 만들어지고, 정작 소비자는 그중 하나만 사용하는 상황이 벌어진다.
+
+반면 소비자가 인터페이스를 정의하면, **실제로 필요한 메서드만** 포함할 수 있다. Client가 `GetAllCustomers`만 필요하다면 그것만 인터페이스에 넣으면 된다. 이것이 SOLID 원칙 중 하나인 인터페이스 분리 원칙(Interface Segregation Principle)이 자연스럽게 지켜지는 이유다.
+
+### 3. 테스트가 쉬워진다
+
+인터페이스가 작으면 테스트용 Mock을 만들기도 훨씬 수월하다. 메서드 하나짜리 인터페이스라면 Mock도 메서드 하나만 구현하면 되기 때문이다.
+
+```go
+type mockStore struct{}
+
+func (m *mockStore) GetAllCustomers() ([]store.Customer, error) {
+	return []store.Customer{{Name: "Test"}}, nil
+}
+```
+
+만약 10개의 메서드를 가진 거대한 인터페이스였다면, 테스트에서 단 하나의 메서드만 사용하더라도 나머지 9개를 모두 구현해야 했을 것이다.
+
+### 4. 기존 코드 수정 없이 확장 가능
+
+새로운 데이터 소스(예: API에서 고객 정보를 가져오는 구현체)를 추가한다고 해보자.
+
+```go
+package api
+
+type APICustomerFetcher struct {
+	endpoint string
+}
+
+func (a *APICustomerFetcher) GetAllCustomers() ([]store.Customer, error) {
+	// HTTP 요청으로 고객 정보를 가져온다
+}
+```
+
+이 새 구현체를 작성하는 개발자는 client 패키지에 `customerGetter`라는 인터페이스가 있다는 사실조차 몰라도 된다. 그저 자신의 요구사항에 맞게 `GetAllCustomers` 메서드를 구현하면, Go 컴파일러가 알아서 해당 인터페이스를 만족한다고 판단한다.
+
+기존의 client 코드나 store 코드는 단 한 줄도 수정할 필요가 없다. 새로운 구현체가 추가될 때마다 기존 코드를 건드려야 하는 상황을 피할 수 있다는 것은 유지보수 측면에서 큰 장점이다.
+
+---
+
+## 실제 사용 예시
+
+### main.go
+
+```go
+package main
+
+import (
+    "blog-gopher/scrapper/client"
+    "blog-gopher/scrapper/mart"
+    "blog-gopher/scrapper/store"
+    "fmt"
+)
+
+func main() {
+    // store 구현체 사용
+    fmt.Println("=== Store Customers ===")
+    s := store.NewConvenienceStore()
+    c1 := client.NewClient(s)  // ConvenienceStore를 주입
+    c1.PrintAllCustomers()
+
+    // mart 구현체 사용 - 동일한 Client, 다른 구현체
+    fmt.Println("\n=== Mart Customers ===")
+    m := mart.NewMartStore()
+    c2 := client.NewClient(m)  // MartStore를 주입
+    c2.PrintAllCustomers()
+}
+```
+
+### 실행 결과
+
+```
+=== Store Customers ===
+Customer: Alice
+Customer: Bob
+Customer: Charlie
+
+=== Mart Customers ===
+Customer: Mart Customer 1
+Customer: Mart Customer 2
+Customer: Mart Customer 3
+```
+
+Client 코드는 전혀 바뀌지 않았다는 점에 주목하자. `ConvenienceStore`를 사용하든 `MartStore`를 사용하든 Client 입장에서는 동일한 방식으로 동작한다. 주입하는 구현체만 바꾸면 되기 때문에, 런타임에 동적으로 구현체를 교체하는 것도 가능하다.
+
+---
+
+## 테스트 코드
+
+소비자 측 인터페이스 패턴의 진가는 테스트에서 드러난다. 실제 데이터베이스나 외부 API에 의존하지 않고도 비즈니스 로직을 검증할 수 있기 때문이다.
+
+```go
+package client_test
+
+import (
+    "blog-gopher/scrapper/client"
+    "blog-gopher/scrapper/store"
+    "errors"
+    "testing"
+)
+
+// 테스트용 Mock - 인터페이스가 작으니 구현도 간단하다
+type mockStore struct {
+    customers []store.Customer
+    err       error
+}
+
+func (m *mockStore) GetAllCustomers() ([]store.Customer, error) {
+    return m.customers, m.err
+}
+
+func TestPrintAllCustomers_Success(t *testing.T) {
+    mock := &mockStore{
+        customers: []store.Customer{{Name: "Test User"}},
+    }
+
+    c := client.NewClient(mock)
+    err := c.PrintAllCustomers()
+
+    if err != nil {
+        t.Errorf("unexpected error: %v", err)
+    }
+}
+
+func TestPrintAllCustomers_Error(t *testing.T) {
+    mock := &mockStore{
+        err: errors.New("database connection failed"),
+    }
+
+    c := client.NewClient(mock)
+    err := c.PrintAllCustomers()
+
+    if err == nil {
+        t.Error("expected error but got nil")
+    }
+}
+```
+
+위 테스트에서 `mockStore`는 실제 데이터베이스와 전혀 연결되어 있지 않다. 성공 케이스에서는 미리 정해둔 테스트 데이터를 반환하고, 실패 케이스에서는 에러를 반환하도록 설정했다. 이렇게 하면 네트워크 상태나 데이터베이스 연결 여부에 관계없이 Client의 비즈니스 로직을 독립적으로 검증할 수 있다.
+
+---
+
+## Producer Side vs Consumer Side 비교
+
+| 관점               | Producer Side (Java 스타일) | Consumer Side (Go 스타일)     |
+| ------------------ | --------------------------- | ----------------------------- |
+| 인터페이스 위치    | 구현체와 함께               | 사용하는 곳에                 |
+| 구현 선언          | `implements` 명시           | 암시적 (메서드 시그니처 일치) |
+| 의존성 방향        | 소비자 → 제공자             | 제공자 → 소비자 (역전)        |
+| 인터페이스 크기    | 제공자가 결정 (보통 큼)     | 소비자가 결정 (필요한 만큼)   |
+| 새 인터페이스 추가 | 구현체 수정 필요            | 기존 코드 수정 불필요         |
+| 순환 의존          | 발생 가능                   | 구조적으로 방지               |
+
+---
+
+## 정리
+
+Go에서 인터페이스를 다룰 때 기억해야 할 것들을 정리해보자.
+
+**인터페이스는 소비자 측에서 정의한다.** 제공자가 "이렇게 쓰세요"라고 인터페이스를 내미는 것이 아니라, 소비자가 "나는 이런 게 필요해"라고 선언하는 방식이다. 이렇게 하면 소비자는 자신에게 꼭 필요한 최소한의 계약만 정의할 수 있고, 구현체는 그 계약을 알지 못한 채 자신의 역할을 수행한다.
+
+**구현체는 인터페이스의 존재를 모른다.** `implements` 같은 명시적 선언이 없기 때문에, 메서드 시그니처만 맞으면 자동으로 인터페이스를 만족한다. 이 특성 덕분에 기존 코드를 수정하지 않고도 새로운 추상화를 도입할 수 있다.
+
+**인터페이스는 작게 유지한다.** Go에서는 메서드 하나짜리 인터페이스도 흔하다. `io.Reader`, `io.Writer`처럼 단일 책임을 가진 작은 인터페이스들이 조합되어 강력한 추상화를 만들어낸다.
+
+**추상화는 미리 설계하지 않는다.** 처음부터 완벽한 인터페이스를 설계하려고 하기보다, 코드가 성장하면서 공통 패턴이 드러날 때 인터페이스를 도입하는 것이 Go스러운 방식이다.
+
+Java나 C#에서 넘어온 개발자에게 Go의 암시적 인터페이스는 처음엔 어색하게 느껴질 수 있다. 하지만 이 패턴에 익숙해지면 더 유연하고 결합도가 낮은 코드를 자연스럽게 작성하게 될 것이다.
