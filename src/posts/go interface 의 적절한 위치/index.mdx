@@ -1,0 +1,389 @@
+---
+title: 'go interface 의 적절한 위치'
+date: 2026-01-23
+desc: interface 를 어디에 둘 것인가
+thumbnail: /team-member-1.jpeg
+category: Go
+open: true
+---
+
+### 이 글에서 다루는 내용
+
+- Go의 암시적 인터페이스 구현(Duck Typing)
+- 다른 언어와 Go 인터페이스의 차이
+- 인터페이스를 소비자 측(Consumer Side)에 두는 이유
+- 의존성 주입 패턴 적용
+
+<br />
+
+## 제공자 측 vs 소비자 측, 인터페이스를 어디에 둘 것인가?
+
+![image1.png](./image1.png)
+인터페이스를 정의할 때 두 가지 선택지가 있다.
+
+```bash
+- 제공자 측(Producer Side): 구체적인 구현이 있는 패키지에 인터페이스를 정의
+- 소비자 측(Consumer Side): 인터페이스를 사용하는 패키지에 인터페이스를 정의
+```
+
+Java나 C# 개발자라면 제공자 측에 인터페이스를 두는 방식이 익숙할 것이다.
+하지만 Go에서는 **소비자 측에 인터페이스를 두는 것**을 권장한다.
+왜 그럴까? 이를 이해하려면 먼저 Go 인터페이스가 다른 언어와 어떻게 다른지 알아야 한다.
+
+---
+
+## 다른 언어 vs Go: 인터페이스의 근본적 차이
+
+<br />
+
+### Java의 명시적 인터페이스
+
+Java 는 인터페이스를 **명시적으로 선언**하여 구현한다.
+이 방식에서는 구현체가 인터페이스의 존재를 **반드시 알고 있어야** 한다. `implements` 키워드를 통해 "나는 이 인터페이스를 구현하겠다"고 명시적으로 선언하기 때문이다. 이는 인터페이스와 구현체 사이에 **강한 계약 관계**가 형성된다는 의미이기도 한데, 구현체를 작성하는 시점에 이미 인터페이스가 존재하며 구현체는 그 인터페이스에 종속된다.
+
+```java
+public interface RevenueProvider {
+    List<AdRevenue> getRevenue();
+}
+
+// 구현체는 반드시 implements 키워드를 사용해야 한다
+public class AdsenseClient implements RevenueProvider {
+    @Override
+    public List<AdRevenue> getRevenue() {
+        // ...
+    }
+}
+```
+
+이런 구조에서 새로운 인터페이스를 도입하려면 어떻게 될까? 기존에 작성된 구현체들을 일일이 찾아가서 `implements NewInterface`를 추가해줘야 한다. 라이브러리나 외부 패키지의 타입이라면 아예 수정이 불가능할 수도 있다.
+
+<br />
+
+### Go의 암시적 인터페이스 (Duck Typing)
+
+이와 달리 Go 에서는 **메서드 시그니처만 일치하면 자동으로 인터페이스를 구현한 것으로 간주**된다.
+Go의 인터페이스는 암시적으로 구현되며 이는 Go의 유연성과 간결성을 높이는 핵심 요소이다.
+
+```go
+type RevenueProvider interface {
+    GetRevenue() ([]AdRevenue, error)
+}
+
+// implements 같은 명시적인 키워드가 없고,
+// 메서드 시그니처만 일치하면 된다.
+type AdsenseClient struct { ... }
+func (a *AdsenseClient) GetRevenue() ([]AdRevenue, error) {
+    // ...
+}
+```
+
+여기서 핵심은 구현체가 인터페이스의 존재를 **전혀 몰라도 된다**는 점이다. `AdsenseClient`를 작성하는 개발자는 `RevenueProvider`라는 인터페이스 위치를 신경쓰는 대신 그저 자신에게 필요한 메서드를 정의하면 된다.
+
+이런 설계 철학 뒤에는 **추상화는 발견하는 것이지, 미리 설계하는 것이 아니다**라는 Go의 실용주의가 깔려 있다. 처음부터 완벽한 인터페이스를 설계하려고 애쓰기보다 코드가 성장하면서 자연스럽게 공통 패턴이 드러날 때 인터페이스를 정의하는 방식이다.
+
+덕분에 새로운 인터페이스를 도입하더라도 기존 코드는 전혀 수정할 필요가 없다. 이미 적절한 메서드를 가지고 있다면 자동으로 그 인터페이스를 만족하기 때문이다. **소비자 측에 인터페이스를 두는 것이 자연스러운 이유**다. 구조체는 그저 메서드 시그니처를 일치시켜 각 구조체의 요구사항에 맞게 구현만 하면 되고, 소비자는 구조체를 신경쓰지 않고 인터페이스의 추상메서드만 가져다 쓰면 된다.
+
+---
+
+## 왜 소비자 측(Consumer Side)에 인터페이스를 두는가?
+
+실제 예제를 통해 왜 소비자 측에 인터페이스를 두는 것이 자연스러운지 살펴보자.
+
+### 프로젝트 구조
+
+```bash
+adplatform/
+├── dashboard/
+│   └── dashboard.go   # 인터페이스 정의 + Dashboard (소비자)
+├── adsense/
+│   └── adsense.go     # AdsenseClient (구현체 1)
+└── admob/
+    └── admob.go       # AdmobClient (구현체 2)
+```
+
+핵심은 **인터페이스가 dashboard 패키지에 있다**는 점이다.
+adsense와 admob 패키지는 인터페이스의 존재조차 모른다.
+
+---
+
+## 코드로 이해하기
+
+### 1. adsense/adsense.go - 구현체 (인터페이스를 모른다)
+
+```go
+package adsense
+
+type AdRevenue struct {
+	Date    string
+	Amount  float64
+	Currency string
+}
+
+type AdsenseClient struct {
+	revenues []AdRevenue
+}
+
+func NewAdsenseClient() *AdsenseClient {
+	return &AdsenseClient{
+		revenues: []AdRevenue{
+			{Date: "2024-01-01", Amount: 150.50, Currency: "USD"},
+			{Date: "2024-01-02", Amount: 200.75, Currency: "USD"},
+			{Date: "2024-01-03", Amount: 180.25, Currency: "USD"},
+		},
+	}
+}
+
+func (a *AdsenseClient) GetRevenue() ([]AdRevenue, error) {
+	return a.revenues, nil
+}
+```
+
+adsense 패키지는 어떤 인터페이스도 import하지 않는다.
+그저 `GetRevenue`라는 메서드를 가진 구조체를 제공할 뿐이다.
+
+### 2. admob/admob.go - 또 다른 구현체 (역시 인터페이스를 모른다)
+
+```go
+package admob
+
+import "adplatform/adsense"
+
+type AdmobClient struct {
+	revenues []adsense.AdRevenue
+}
+
+func NewAdmobClient() *AdmobClient {
+	return &AdmobClient{
+		revenues: []adsense.AdRevenue{
+			{Date: "2024-01-01", Amount: 320.00, Currency: "USD"},
+			{Date: "2024-01-02", Amount: 450.50, Currency: "USD"},
+			{Date: "2024-01-03", Amount: 380.75, Currency: "USD"},
+		},
+	}
+}
+
+func (a *AdmobClient) GetRevenue() ([]adsense.AdRevenue, error) {
+	return a.revenues, nil
+}
+```
+
+admob 패키지도 마찬가지다. 동일한 시그니처의 메서드를 가졌지만, 어떤 인터페이스를 구현하겠다는 선언은 없다.
+
+### 3. dashboard/dashboard.go - 소비자가 인터페이스를 정의한다
+
+```go
+package dashboard
+
+import (
+	"fmt"
+	"adplatform/adsense"
+)
+
+// 인터페이스는 여기, 소비자 측에서 정의한다
+// 소문자로 시작하므로 이 패키지 내부에서만 사용된다
+type revenueProvider interface {
+	GetRevenue() ([]adsense.AdRevenue, error)
+}
+
+type Dashboard struct {
+	provider revenueProvider  // 구체 타입이 아닌 인터페이스에 의존
+}
+
+// 의존성 주입: 인터페이스 타입을 받는다
+func NewDashboard(p revenueProvider) *Dashboard {
+	return &Dashboard{provider: p}
+}
+
+func (d *Dashboard) PrintRevenue() error {
+	revenues, err := d.provider.GetRevenue()
+	if err != nil {
+		return err
+	}
+	for _, rev := range revenues {
+		fmt.Printf("%s: $%.2f %s\n", rev.Date, rev.Amount, rev.Currency)
+	}
+	return nil
+}
+```
+
+여기서 주목할 점은 `revenueProvider` 인터페이스가 dashboard 패키지 안에 정의되어 있다는 것이다. 소문자로 시작하기 때문에 이 인터페이스는 패키지 외부로 노출되지 않는다(unexported). 굳이 외부에 공개할 이유가 없기 때문이다 — 이 인터페이스는 오직 dashboard 패키지 내부에서 의존성을 추상화하기 위한 용도로만 사용된다.
+
+이 패턴의 핵심은 **소비자가 자신이 필요로 하는 것을 스스로 정의한다**는 점이다. Dashboard는 "나는 `GetRevenue` 메서드를 가진 무언가가 필요해"라고 선언하고, 그 조건을 만족하는 어떤 타입이든 받아들일 수 있다.
+
+---
+
+## 소비자 측에 인터페이스를 뒀을 때 이점
+
+### 1. 의존성 방향이 올바르다
+
+```bash
+[dashboard] ────────────────────────────────────────┐
+   │                                                │
+   │ 인터페이스 정의: revenueProvider                  │
+   │ "GetRevenue() 메서드가 필요해"                    │
+   │                                                │
+   └────────────────────────────────────────────────┘
+         ▲                        ▲
+         │                        │
+         │ 암시적 구현               │암시적 구현
+         │                        │
+     [adsense]                 [admob]
+    AdsenseClient             AdmobClient
+```
+
+의존성 방향이 구현체에서 소비자 방향으로 향하고 있다.
+인터페이스 코드를 사용하는 dashboard 패키지는 adsense나 admob 패키지를 직접 import할 필요가 없고 반대로 adsense와 admob도 dashboard의 존재를 전혀 모른다.
+이런 구조에서는 서로가 서로를 모르기 때문에 **구조적으로 순환 참조가 발생하지 않는다.**
+
+<br />
+
+### 2. 필요한 것만 요구한다 (Interface Segregation)
+
+```go
+// Good: 필요한 메서드만 정의
+type revenueProvider interface {
+	GetRevenue() ([]adsense.AdRevenue, error)
+}
+
+// Bad: 제공자가 정의한 거대한 인터페이스
+type AdPlatformClient interface {
+	GetRevenue() ([]AdRevenue, error)
+	GetRevenueByDate(date string) (*AdRevenue, error)
+	GetImpressions() (int64, error)
+	GetClicks() (int64, error)
+	GetCTR() (float64, error)
+}
+```
+
+제공자가 인터페이스를 정의하면 보통 "앞으로 필요할지도 모르는" 모든 메서드를 다 넣게 된다.
+결과적으로 5개, 10개의 메서드를 가진 거대한 인터페이스가 만들어지지만 정작 소비자는 그중 필요한 것 몇개, 어쩌면 하나만 사용하는 상황이 벌어진다.
+
+반면 소비자가 인터페이스를 정의하면, **실제로 필요한 메서드만** 포함할 수 있다. Dashboard가 `GetRevenue`만 필요하다면 해당 추상 메서드만 인터페이스에 두면 된다.
+SOLID 원칙 중 하나인 인터페이스 분리 원칙(Interface Segregation Principle)을 자연스럽게 지킬 수 있다.
+
+<br />
+
+### 3. 테스트가 쉬워진다
+
+인터페이스가 작으면 테스트용 Mock을 만들기도 훨씬 수월하다. 메서드 하나짜리 인터페이스라면 Mock도 메서드 하나만 구현하면 되기 때문이다.
+
+```go
+type mockProvider struct{}
+
+func (m *mockProvider) GetRevenue() ([]adsense.AdRevenue, error) {
+	return []adsense.AdRevenue{{Date: "2024-01-01", Amount: 100.0}}, nil
+}
+```
+
+만약 10개의 메서드를 가진 거대한 인터페이스였다면, 테스트에서 단 하나의 메서드만 사용하더라도 나머지 9개를 모두 구현해야 했을 것이다.
+
+<br />
+
+### 4. 기존 코드 수정 없이 확장 가능
+
+새로운 광고 플랫폼(예: Facebook Ads)을 추가한다고 해보자.
+
+```go
+package facebook
+
+type FacebookAdsClient struct {
+	accessToken string
+}
+
+func (f *FacebookAdsClient) GetRevenue() ([]adsense.AdRevenue, error) {
+	// Facebook Ads API를 호출해서 수익 정보를 가져온다
+}
+```
+
+이 새 구현체를 작성하는 개발자는 dashboard 패키지에 `revenueProvider`라는 인터페이스가 있다는 사실조차 몰라도 된다. 그저 자신의 요구사항에 맞게 `GetRevenue` 메서드를 구현하면, Go 컴파일러가 알아서 해당 인터페이스를 만족한다고 판단한다.
+
+기존의 dashboard 코드나 adsense 코드는 단 한 줄도 수정할 필요가 없다. 새로운 구현체가 추가될 때마다 기존 코드를 건드려야 하는 상황을 피할 수 있다는 것은 유지보수 측면에서 큰 장점이다.
+
+---
+
+## 클린 아키텍처와의 연관성
+
+지금까지 살펴본 패턴이 왜 중요한지 클린 아키텍처 관점에서 다시 한번 정리해보자.
+클린 아키텍처의 핵심은 의존성 방향, 즉 **의존성이 항상 바깥에서 안쪽으로 향해야 한다**.
+내부 레이어(Entities, Use Cases)는 외부 레이어(Frameworks, Drivers)를 알지 못해야 핵심 도메인 로직이 외부 기술 변화에 영향받지 않는다.
+
+<br />
+
+### 예시 코드와 클린 아키텍처 매핑
+
+앞서 살펴본 광고 플랫폼 예제가 클린 아키텍처에서 어떻게 매핑되는지 보자.
+
+```bash
+┌───────────────────────────────────────────────────────────┐
+│                  Infrastructure Layer                     │
+│               (adsense, admob, facebook 패키지)             │
+│                                                           │
+│   ┌─────────────┐  ┌─────────────┐  ┌─────────────┐       │
+│   │AdsenseClient│  │ AdmobClient │  │FacebookAds  │       │
+│   └──────┬──────┘  └──────┬──────┘  └──────┬──────┘       │
+│          │                │                │              │
+│          │ GetRevenue()   │ GetRevenue()   │ GetRevenue() │
+│          │                │                │              │
+│ ─────────┼────────────────┼────────────────┼───────────── │
+│          │                │                │              │
+│          ▼                ▼                ▼              │
+│   ┌─────────────────────────────────────────────────┐     │
+│   │              revenueProvider interface          │     │
+│   │              (dashboard 패키지 내부 정의)           │     │
+│   └─────────────────────────────────────────────────┘     │
+│                           │                               │
+│                           ▼                               │
+│   ┌─────────────────────────────────────────────────┐     │
+│   │                   Dashboard                     │     │
+│   │              (Use Case / Application)           │     │
+│   └─────────────────────────────────────────────────┘     │
+│                                                           │
+│                    Application Layer                      │
+└───────────────────────────────────────────────────────────┘
+```
+
+- **Infrastructure Layer**: AdsenseClient, AdmobClient 같은 외부 시스템 연동 코드
+- **Application Layer**: Dashboard 와 revenueProvider 인터페이스가 위치한 비즈니스 로직 영역
+
+핵심은 인터페이스가 Application Layer에 정의되어 있다는 점이다. 덕분에 Infrastructure Layer의 구현체들이 Application Layer를 향해 의존하게 된다.
+
+<br />
+
+### 이 구조가 주는 이점
+
+- **의존성 역전 원칙(DIP)**: 고수준 모듈(Dashboard)이 저수준 모듈(AdsenseClient)에 직접 의존하지 않고 추상화(revenueProvider)에 의존한다. Go의 암시적 인터페이스 덕분에 저수준 모듈은 추상화의 존재조차 모르면서 동시에 원칙을 만족시킨다.
+
+- **인터페이스 소유권**: 인터페이스가 Use Case 레이어(dashboard 패키지)에 있기 때문에 의존성이 자연스럽게 안쪽으로 향한다. 만약 인터페이스가 Infrastructure 레이어(adsense 패키지)에 있었다면 의존성 방향이 반대로 되어 클린 아키텍처 원칙을 위반했을 것이다.
+
+- **플러그인 아키텍처**: Infrastructure 레이어의 구현체들은 교체 가능한 "플러그인"처럼 동작한다. AdSense에서 AdMob으로, 또는 아직 존재하지 않는 새로운 광고 플랫폼으로 바꾸더라도 Application 레이어는 전혀 수정할 필요가 없다.
+
+---
+
+## Producer Side vs Consumer Side 비교
+
+| 관점               | Producer Side (Java 스타일) | Consumer Side (Go 스타일)     |
+| ------------------ | --------------------------- | ----------------------------- |
+| 인터페이스 위치    | 구현체와 함께               | 사용하는 곳에                 |
+| 구현 선언          | implements 명시             | 암시적 (메서드 시그니처 일치) |
+| 의존성 방향        | 소비자 → 제공자             | 제공자 → 소비자 (역전)        |
+| 인터페이스 크기    | 제공자가 결정 (보통 큼)     | 소비자가 결정 (필요한 만큼)   |
+| 새 인터페이스 추가 | 구현체 수정 필요            | 기존 코드 수정 불필요         |
+| 순환 의존          | 발생 가능                   | 구조적으로 방지               |
+
+---
+
+## 정리
+
+**인터페이스는 소비자 측에서 정의한다.** 제공자가 "이렇게 쓰세요"라고 인터페이스를 내미는 것이 아니라 소비자가 "나는 이런 게 필요해"라고 선언하는 방식이다. 소비자는 자신에게 필요한 최소한의 계약만 정의할 수 있고 구현체는 그 계약을 알지 못한 채 자신의 역할을 수행한다.
+
+**구현체는 인터페이스의 존재를 모른다.** `implements` 같은 명시적 선언이 없기 때문에 메서드 시그니처만 맞으면 자동으로 인터페이스를 만족한다. 이 특성 덕분에 기존 코드를 수정하지 않고도 새로운 추상화를 도입할 수 있다.
+
+**인터페이스는 작게 유지한다.** Go에서는 메서드 하나짜리 인터페이스도 흔하다. `io.Reader`, `io.Writer`처럼 단일 책임을 가진 작은 인터페이스들이 조합되어 강력한 추상화를 만들어낸다.
+
+**추상화는 미리 설계하지 않는다.** 처음부터 완벽한 인터페이스를 설계하려고 하기보다 코드가 성장하면서 공통 패턴이 드러날 때 인터페이스를 도입하는 것이 Go스러운 방식이다.
+
+Java에서 넘어온 개발자에게 Go의 암시적 인터페이스는 처음엔 어색할 수 있다. 하지만 이 패턴에 익숙해지면 더 유연하고 결합도가 낮은 코드를 자연스럽게 작성할 수 있다.
+
+##### reference
+
+- 100 Go Mistakes and how to avoid them
