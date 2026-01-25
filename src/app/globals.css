@@ -106,11 +106,12 @@ pre {
   color: #50a14f;
 }
 
-/* Post Content Wrapper */
-.post-content-wrapper {
+/* Blog Page Layout Wrapper */
+.blog-page-wrapper {
   display: flex;
   gap: 4.5rem;
   position: relative;
+  width: 100%;
 }
 
 .post-content {
@@ -126,13 +127,13 @@ pre {
 @media (min-width: 1280px) {
   .toc-sidebar {
     display: block;
-    position: sticky;
+    position: fixed;
     top: 100px;
+    right: calc((100vw - 900px) / 2 - 320px);
     width: 280px;
     height: fit-content;
     max-height: calc(100vh - 120px);
     overflow-y: auto;
-    flex-shrink: 0;
   }
 }
 

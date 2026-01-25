@@ -4,6 +4,7 @@ import { sync } from 'glob';
 import fs from 'fs';
 import matter from 'gray-matter';
 import PostMarkdown from '@/app/blog/[category]/[post-name]/postMarkdown';
+import TOC from '@/app/blog/toc';
 
 // Type definitions
 interface RouteParams {
@@ -73,7 +74,7 @@ const Post = ({ params }: Props) => {
   const postDate = post?.data?.date ? new Date(post.data.date) : new Date();
 
   return (
-    <>
+    <div className="blog-page-wrapper">
       <div className={`${styles.textContainer} blog-layout-container`}>
         <div className={styles.wrapper}>
           <PostMarkdown
@@ -85,7 +86,10 @@ const Post = ({ params }: Props) => {
           />
         </div>
       </div>
-    </>
+      <aside className="toc-sidebar">
+        <TOC content={post.content} />
+      </aside>
+    </div>
   );
 };
 
