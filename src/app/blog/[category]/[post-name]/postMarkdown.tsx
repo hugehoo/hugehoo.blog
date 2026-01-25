@@ -6,7 +6,6 @@ import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { oneDark } from 'react-syntax-highlighter/dist/cjs/styles/prism';
 import remarkGfm from 'remark-gfm';
 import rehypeRaw from 'rehype-raw';
-import TOC from '@/app/blog/toc';
 import React from 'react';
 
 const getHeadingText = (node: any) => {
@@ -61,9 +60,8 @@ const PostMarkdown = ({ params, containerStyles }: Props) => {
         </div>
       </div>
 
-      <div className="post-content-wrapper">
-        <article className="post-content">
-          <ReactMarkdown
+      <article className="post-content">
+        <ReactMarkdown
           remarkPlugins={[remarkGfm]}
           rehypePlugins={[rehypeRaw]}
           components={{
@@ -295,13 +293,9 @@ const PostMarkdown = ({ params, containerStyles }: Props) => {
             ),
           }}
         >
-            {content}
-          </ReactMarkdown>
-        </article>
-        <aside className="toc-sidebar">
-          <TOC content={content} />
-        </aside>
-      </div>
+          {content}
+        </ReactMarkdown>
+      </article>
     </>
   );
 };
