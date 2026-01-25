@@ -68,7 +68,7 @@ spec:
 
 ### 작동 원리
 
-Argo Rollouts는 **Service Mesh(Istio, Linkerd)** 또는 **Ingress Controller(NGINX, ALB)**와 통합하여 트래픽 비율을 직접 제어한다.
+Argo Rollouts는 **Service Mesh(Istio, Linkerd)** 또는 **Ingress Controller(NGINX, ALB)** 와 통합하여 트래픽 비율을 직접 제어한다.
 
 ``` bash
         ┌─────────────┐
@@ -100,6 +100,6 @@ Argo Rollouts 컨트롤러가 배포 단계마다 VirtualService나 Ingress 설�
 - **Deployment**: Pod 생명주기만 관리. 트래픽은 Service가 균등 분배하므로 비율 제어 불가
 - **Rollout**: 트래픽 라우팅까지 관리. Service Mesh/Ingress와 연동하여 Canary, Blue-Green 가능
 
-Canary 배포의 본질은 **"새 버전에 일부 트래픽만 보내고 검증한 후 점진적으로 확대"**하는 것이다.
+Canary 배포의 본질은 **새 버전에 일부 트래픽만 보내고 검증한 후 점진적으로 확대**하는 것이다.
 이를 위해서는 트래픽 비율 제어가 필수인데, 기본 Deployment에는 이 기능이 없다.
 그래서 Argo Rollouts 같은 확장 리소스가 필요한 것이다.
