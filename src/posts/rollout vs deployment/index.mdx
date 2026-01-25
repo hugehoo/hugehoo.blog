@@ -1,0 +1,105 @@
+---
+title: 'Rollout vs Deployment'
+date: 2026-01-25
+desc: 왜 Canary 배포는 Rollout에서만 가능할까?
+thumbnail: /team-member-1.jpeg
+category: deployment
+open: true
+---
+
+Kubernetes에서 배포 전략을 다루다 보면 Deployment와 Argo Rollout이라는 두 가지 선택지를 마주하게 된다.
+특히 Canary 배포를 구현하려고 할 때, 왜 기본 Deployment로는 안 되고 Argo Rollout을 써야 하는지 궁금했다.
+
+## Deployment vs Rollout 비교
+
+| 항목 | Deployment | Rollout (Argo Rollouts) |
+|------|------------|------------------------|
+| 종류 | K8s 기본 리소스 | CRD (Custom Resource Definition) |
+| 배포 전략 | RollingUpdate, Recreate | Canary, Blue-Green, 분석 기반 배포 |
+| 트래픽 제어 | 불가능 | 비율 기반 제어 가능 |
+| 자동 롤백 | 수동으로 처리 | 메트릭 기반 자동 롤백 |
+
+## Deployment의 RollingUpdate 한계
+
+Deployment의 RollingUpdate 전략은 다음과 같이 설정한다.
+
+```yaml
+spec:
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 25%
+      maxUnavailable: 25%
+```
+
+여기서 핵심적인 한계가 있다. RollingUpdate는 **Pod 수 기준**으로 점진적 교체만 할 뿐, **트래픽 비율 제어가 불가능**하다.
+
+예를 들어 10개의 Pod 중 2개를 새 버전으로 교체하면, Service는 모든 Pod에 균등하게 트래픽을 분배하기 때문에 자동으로 약 20%의 트래픽이 새 버전으로 간다.
+"전체 트래픽의 5%만 새 버전으로 보내고 싶다"는 요구사항은 RollingUpdate로 구현할 수 없다.
+
+### RollingUpdate의 트래픽 분배
+
+``` bash
+Service (Round Robin)
+        │
+   ┌────┼────┬────┬────┐
+   ▼    ▼    ▼    ▼    ▼
+ [v1] [v1] [v1] [v1] [v2]  ← 새 버전 1개 = 트래픽 20%
+```
+
+Pod 비율 = 트래픽 비율이 되어버리는 구조다.
+
+## Rollout에서 Canary가 가능한 이유
+
+Argo Rollout은 트래픽 라우팅을 직접 제어할 수 있다.
+
+```yaml
+spec:
+  strategy:
+    canary:
+      steps:
+      - setWeight: 5      # 트래픽 5%만 새 버전으로
+      - pause: {duration: 10m}
+      - setWeight: 20
+      - pause: {duration: 10m}
+      - setWeight: 50
+      - pause: {}         # 수동 승인 대기
+```
+
+### 작동 원리
+
+Argo Rollouts는 **Service Mesh(Istio, Linkerd)** 또는 **Ingress Controller(NGINX, ALB)**와 통합하여 트래픽 비율을 직접 제어한다.
+
+``` bash
+        ┌─────────────┐
+        │   Ingress   │
+        │  Controller │
+        └──────┬──────┘
+               │
+      ┌────────┴────────┐
+      │ Traffic Split   │
+      │   (95% / 5%)    │
+      └────────┬────────┘
+         ┌─────┴─────┐
+         ▼           ▼
+   ┌──────────┐ ┌──────────┐
+   │  Stable  │ │  Canary  │
+   │ Service  │ │ Service  │
+   │  (v1)    │ │  (v2)    │
+   └──────────┘ └──────────┘
+```
+
+1. **Stable Service**: 기존 버전 Pod로 라우팅
+2. **Canary Service**: 새 버전 Pod로 라우팅
+3. **TrafficRouting**: Istio VirtualService나 Ingress 설정을 동적으로 수정하여 트래픽 비율 조절
+
+Argo Rollouts 컨트롤러가 배포 단계마다 VirtualService나 Ingress 설정을 자동으로 업데이트해서 원하는 트래픽 비율을 유지한다.
+
+## 핵심 정리
+
+- **Deployment**: Pod 생명주기만 관리. 트래픽은 Service가 균등 분배하므로 비율 제어 불가
+- **Rollout**: 트래픽 라우팅까지 관리. Service Mesh/Ingress와 연동하여 Canary, Blue-Green 가능
+
+Canary 배포의 본질은 **"새 버전에 일부 트래픽만 보내고 검증한 후 점진적으로 확대"**하는 것이다.
+이를 위해서는 트래픽 비율 제어가 필수인데, 기본 Deployment에는 이 기능이 없다.
+그래서 Argo Rollouts 같은 확장 리소스가 필요한 것이다.
