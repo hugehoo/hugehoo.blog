@@ -5,7 +5,7 @@ const subTitleProperty = 'text-xl mb-3 font-semibold';
 const About = async () => {
     return (
         <>
-            <div className="p-2 min-h-[75vh] text-base font-normal text-gray-800 leading-7">
+            <div className="p-2 min-h-[75vh] text-base font-normal text-gray-800 dark:text-gray-200 leading-7">
                 <div className="mb-5 text-2xl font-semibold">
                     안녕하세요{' '}
                     <span className="text-yellow-500 hover:text-yellow-600 transition-colors duration-300">

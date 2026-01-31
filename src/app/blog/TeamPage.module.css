@@ -4,7 +4,12 @@
   margin: 0 auto;
   padding: 0 2em 0 2em;
   border-left: 1.5px solid #e1e1e1;
-  box-shadow: 10px 4px 8px rgba(0, 0, 0, 0.1); /* 그림자 추가 */
+  box-shadow: 10px 4px 8px rgba(0, 0, 0, 0.1);
+}
+
+:global(.dark) .container {
+  border-left-color: #374151;
+  box-shadow: 10px 4px 8px rgba(0, 0, 0, 0.3);
 }
 
 .main {
@@ -26,6 +31,10 @@
   margin-top: 2em;
   margin-bottom: 40px;
   border-bottom: 1px solid #cbd5e0;
+}
+
+:global(.dark) .header {
+  border-bottom-color: #4a5568;
 }
 
 .headerTitle {
@@ -118,6 +127,10 @@
 .footer {
   border-top: 1px solid #cbd5e0;
 }
+
+:global(.dark) .footer {
+  border-top-color: #4a5568;
+}
 .bottom {
   margin: 0.75em 0 0.75em 0;
 }
@@ -172,6 +185,10 @@
   margin-bottom: 40px;
   /*padding-bottom: 40px;*/
   border-bottom: 1px solid #333;
+}
+
+:global(.dark) .contentHeader {
+  border-bottom-color: #4a5568;
 }
 
 .topHeader {

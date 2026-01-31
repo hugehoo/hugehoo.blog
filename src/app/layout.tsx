@@ -7,6 +7,7 @@ import { Header } from '@/layouts/Header';
 import { Bottom } from '@/layouts/Bottom';
 import styles from '@/app/blog/TeamPage.module.css';
 import { useSelectedLayoutSegments } from 'next/navigation';
+import { ThemeProvider } from 'next-themes';
 
 const ibmPlexSansKr = IBM_Plex_Sans_KR({
   weight: ['400', '500', '600', '700'],
@@ -38,13 +39,15 @@ export default function RootLayout({
         <link rel="icon" href="/src/app/favicon.ico" />
       </Head>
       <body>
-        <div className={styles.container}>
-          <main className={styles.main}>
-            <Header />
-            {children}
-            <Bottom />
-          </main>
-        </div>
+        <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
+          <div className={styles.container}>
+            <main className={styles.main}>
+              <Header />
+              {children}
+              <Bottom />
+            </main>
+          </div>
+        </ThemeProvider>
       </body>
     </html>
   );
