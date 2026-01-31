@@ -15,21 +15,21 @@ const CardSection = ({posts}: { posts: CardInterface[] }) => {
                     >
                         {/* 카드 스타일링 */}
                         <div key={post.title}
-                             className="p-2 max-md:p-4 rounded-lg border md:border-0 border-gray-200 hover:shadow-lg transition-shadow duration-300 bg-white">
+                             className="p-2 max-md:p-4 rounded-lg border md:border-0 border-gray-200 dark:border-gray-700 hover:shadow-lg transition-shadow duration-300 bg-white dark:bg-background">
                             <div>
                                 <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2">
     <span className="max-md:text-lg sm:text-xl font-semibold break-words">
         ⚡️ {post.title}
     </span>
-                                    <div className="text-[13px] text-pink-500 bg-pink-50 rounded-lg px-2 py-1">
+                                    <div className="text-[13px] text-pink-500 dark:text-[#f975a2] bg-pink-50 dark:bg-[rgb(41,38,40)] rounded-lg px-2 py-1">
                                         {post.category}
                                     </div>
-                                    <p className="text-sm sm:text-base text-gray-600 line-clamp-2 sm:ml-auto">
+                                    <p className="text-sm sm:text-base text-gray-600 dark:text-[rgb(191,191,191)] line-clamp-2 sm:ml-auto">
                                         {post.date.toLocaleDateString()}
                                     </p>
                                 </div>
                                 <div className="mt-3">
-                                    <p className="text-sm sm:text-base text-gray-600 line-clamp-2">
+                                    <p className="text-sm sm:text-base text-gray-600 dark:text-[rgb(191,191,191)] line-clamp-2">
                                         💭 {post.summary}
                                     </p>
                                 </div>

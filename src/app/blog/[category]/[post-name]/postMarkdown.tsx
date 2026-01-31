@@ -3,30 +3,19 @@
 import ReactMarkdown from 'react-markdown';
 import Image from 'next/image';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
-import { oneDark } from 'react-syntax-highlighter/dist/cjs/styles/prism';
+import {
+  oneLight,
+  oneDark,
+} from 'react-syntax-highlighter/dist/cjs/styles/prism';
 import remarkGfm from 'remark-gfm';
 import rehypeRaw from 'rehype-raw';
 import React from 'react';
+import { useTheme } from 'next-themes';
 
 const getHeadingText = (node: any) => {
   return node!!.children[0] && 'value' in node!!.children[0]
     ? (node!!.children[0] as any).value
     : '';
-};
-
-const CodeBlock: React.FC<{ language: string; value: string }> = ({
-  language,
-  value,
-}) => {
-  return (
-    <SyntaxHighlighter
-      language={language}
-      style={oneDark}
-      className="language-bash hljs"
-    >
-      {value}
-    </SyntaxHighlighter>
-  );
 };
 
 interface Props {
@@ -40,8 +29,26 @@ interface Props {
 
 const PostMarkdown = ({ params, containerStyles }: Props) => {
   const { decodedTitle, content, date } = params;
+  const { resolvedTheme } = useTheme();
   const generateIdFromText = (text: string) => {
     return text.replace(/\s+/g, '-').toLowerCase();
+  };
+
+  const syntaxTheme = resolvedTheme === 'dark' ? oneDark : oneLight;
+
+  const CodeBlock: React.FC<{ language: string; value: string }> = ({
+    language,
+    value,
+  }) => {
+    return (
+      <SyntaxHighlighter
+        language={language}
+        style={syntaxTheme}
+        className="language-bash hljs"
+      >
+        {value}
+      </SyntaxHighlighter>
+    );
   };
 
   return (
@@ -70,8 +77,8 @@ const PostMarkdown = ({ params, containerStyles }: Props) => {
               return (
                 <h1
                   id={generateIdFromText(headingText)}
+                  className="md-heading"
                   style={{
-                    color: '#111',
                     fontSize: '2em',
                     margin: '1.5em 0 1em 0',
                   }}
@@ -84,8 +91,8 @@ const PostMarkdown = ({ params, containerStyles }: Props) => {
               return (
                 <h2
                   id={generateIdFromText(headingText)}
+                  className="md-heading"
                   style={{
-                    color: '#111',
                     fontSize: '1.7em',
                     fontWeight: '900',
                     margin: '1.5em 0 0.5em 0',
@@ -99,8 +106,8 @@ const PostMarkdown = ({ params, containerStyles }: Props) => {
               return (
                 <h3
                   id={generateIdFromText(headingText)}
+                  className="md-heading"
                   style={{
-                    color: '#111',
                     fontSize: '1.5em',
                     fontWeight: '900',
                     margin: '0.3em 0 0.5em 0',
@@ -111,8 +118,8 @@ const PostMarkdown = ({ params, containerStyles }: Props) => {
             },
             h4: ({ node, ...props }) => (
               <h4
+                className="md-heading"
                 style={{
-                  color: '#111',
                   fontSize: '1.3em',
                   fontWeight: '600',
                   margin: '1em 0 0.5em 0',
@@ -122,8 +129,8 @@ const PostMarkdown = ({ params, containerStyles }: Props) => {
             ),
             h5: ({ node, ...props }) => (
               <h5
+                className="md-heading"
                 style={{
-                  color: '#111',
                   fontSize: '1.2em',
                   fontWeight: '600',
                   margin: '1em 0 0.5em 0',
@@ -132,12 +139,15 @@ const PostMarkdown = ({ params, containerStyles }: Props) => {
               />
             ),
             h6: ({ node, ...props }) => (
-              <h6 style={{ color: '#111', fontSize: '1em' }} {...props} />
+              <h6
+                className="md-heading"
+                style={{ fontSize: '1em' }}
+                {...props}
+              />
             ),
             ol: ({ node, ...props }) => (
               <ol
                 style={{
-                  color: '#111',
                   marginLeft: '1.2em',
                   listStyleType: 'decimal',
                 }}
@@ -147,7 +157,6 @@ const PostMarkdown = ({ params, containerStyles }: Props) => {
             li: ({ node, ...props }) => (
               <li
                 style={{
-                  color: '#111',
                   marginLeft: '0.5em',
                   fontSize: '0.95em',
                   lineHeight: '1.9em',
@@ -158,7 +167,6 @@ const PostMarkdown = ({ params, containerStyles }: Props) => {
             ul: ({ node, ...props }) => (
               <ul
                 style={{
-                  color: '#111',
                   marginLeft: '0.5em',
                   listStyleType: 'disc',
                 }}
@@ -167,11 +175,10 @@ const PostMarkdown = ({ params, containerStyles }: Props) => {
             ),
             strong: ({ node, ...props }) => (
               <strong
+                className="md-strong"
                 style={{
                   fontSize: '1em',
                   fontWeight: '600',
-                  background:
-                    'linear-gradient(to top, #fff3b9 50%, transparent 60%)',
                 }}
                 {...props}
               />
@@ -187,7 +194,7 @@ const PostMarkdown = ({ params, containerStyles }: Props) => {
               />
             ),
             a: ({ href, ...props }) => (
-              <a href={href} style={{ color: '#3498db' }} {...props} />
+              <a href={href} className="md-link" {...props} />
             ),
             br: ({ node, ...props }) => <br {...props} />,
             img: ({ src, alt }) => {
@@ -215,11 +222,9 @@ const PostMarkdown = ({ params, containerStyles }: Props) => {
             },
             blockquote: ({ node, ...props }) => (
               <blockquote
+                className="md-blockquote"
                 style={{
-                  color: '#555',
                   padding: '0.7em 1em 0.7em 1em',
-                  borderLeft: '4px solid #ccc',
-                  backgroundColor: '#f9f9f9',
                   margin: '1em 0',
                 }}
                 {...props}
@@ -242,6 +247,7 @@ const PostMarkdown = ({ params, containerStyles }: Props) => {
             },
             table: ({ node, ...props }) => (
               <table
+                className="md-table"
                 style={{
                   borderCollapse: 'collapse',
                   width: '100%',
@@ -252,29 +258,23 @@ const PostMarkdown = ({ params, containerStyles }: Props) => {
               />
             ),
             thead: ({ node, ...props }) => (
-              <thead
-                style={{
-                  backgroundColor: '#f8f9fa',
-                }}
-                {...props}
-              />
+              <thead className="md-thead" {...props} />
             ),
             th: ({ node, ...props }) => (
               <th
+                className="md-th"
                 style={{
-                  border: '1px solid #dee2e6',
                   padding: '0.75rem',
                   textAlign: 'left',
                   fontWeight: '600',
-                  backgroundColor: '#f8f9fa',
                 }}
                 {...props}
               />
             ),
             td: ({ node, ...props }) => (
               <td
+                className="md-td"
                 style={{
-                  border: '1px solid #dee2e6',
                   padding: '0.75rem',
                 }}
                 {...props}
@@ -284,12 +284,7 @@ const PostMarkdown = ({ params, containerStyles }: Props) => {
               <tbody {...props} />
             ),
             tr: ({ node, ...props }) => (
-              <tr
-                style={{
-                  borderBottom: '1px solid #dee2e6',
-                }}
-                {...props}
-              />
+              <tr className="md-tr" {...props} />
             ),
           }}
         >

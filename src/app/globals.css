@@ -82,6 +82,11 @@
   font-weight: 600;
 }
 
+.dark .code-inline {
+  color: #f0a0bb;
+  background: #3d1f2a;
+}
+
 code {
   font-family: 'Source Code Pro', monospace; /* 코드 블록 폰트 */
 }
@@ -104,6 +109,19 @@ pre {
 
 .language-bash.hljs .hljs-string {
   color: #50a14f;
+}
+
+.dark .language-bash.hljs {
+  color: #abb2bf;
+  background: #282c34;
+}
+
+.dark .language-bash.hljs .hljs-built_in {
+  color: #56b6c2;
+}
+
+.dark .language-bash.hljs .hljs-string {
+  color: #98c379;
 }
 
 /* Blog Page Layout Wrapper */
@@ -144,6 +162,11 @@ pre {
   border: 1px solid #e5e7eb;
 }
 
+.dark .toc-container {
+  background-color: #1e2028;
+  border-color: #374151;
+}
+
 .toc-title {
   font-size: 0.875rem;
   font-weight: 600;
@@ -151,6 +174,10 @@ pre {
   letter-spacing: 0.05em;
   color: #6b7280;
   margin-bottom: 1rem;
+}
+
+.dark .toc-title {
+  color: #9ca3af;
 }
 
 .toc-list {
@@ -189,6 +216,14 @@ pre {
 .toc-link:hover {
   color: #1f2937;
   /*background-color: #e5e7eb;*/
+}
+
+.dark .toc-link {
+  color: #9ca3af;
+}
+
+.dark .toc-link:hover {
+  color: #e5e7eb;
 }
 
 .toc-link.active {

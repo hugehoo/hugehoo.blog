@@ -1,14 +1,25 @@
 'use client';
 
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import styles from '@/app/blog/TeamPage.module.css';
 import Link from 'next/link';
-import { Github, Linkedin } from 'lucide-react';
+import { Github, Linkedin, Sun, Moon } from 'lucide-react';
 import { usePathname } from 'next/navigation';
 import { github, iconSize, linkedIn } from '@/lib/constant';
+import { useTheme } from 'next-themes';
 
 export const Header = () => {
   const pathname = usePathname();
+  const { resolvedTheme, setTheme } = useTheme();
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  const toggleTheme = () => {
+    setTheme(resolvedTheme === 'dark' ? 'light' : 'dark');
+  };
 
   return (
     <div className={`${styles.header} font-[var(--font-ibm-plex-kr)]`}>
@@ -32,7 +43,18 @@ export const Header = () => {
             About
           </Link>
         </nav>
-        <div className="flex text-xl mr-1">
+        <div className="flex text-xl mr-1 items-center">
+          <button
+            onClick={toggleTheme}
+            className="mr-4 p-1 rounded-md hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"
+            aria-label="Toggle dark mode"
+          >
+            {mounted && (resolvedTheme === 'dark' ? (
+              <Sun size={iconSize} />
+            ) : (
+              <Moon size={iconSize} />
+            ))}
+          </button>
           <a href={github} className="mr-4">
             <Github size={iconSize} />
           </a>
