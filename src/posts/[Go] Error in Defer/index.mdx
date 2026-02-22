@@ -1,0 +1,72 @@
+---
+title: 'Error in Defer'
+date: 2026-02-01
+desc: 아우 헷갈려
+thumbnail: /team-member-1.jpeg
+category: Go
+open: true
+---
+
+``` go 
+func getBalance(db *sql.DB, clientID string) (balance float32, err error) {
+	rows, err := db.Query(query, clientID)
+	if err != nil {
+		return 0, err
+	}
+	defer func() {
+	 err = rows.Close()
+	}()
+	
+	if rows.Next() {
+		err := rows.Scan(&balance)
+		if err != nil {
+			return 0, err
+		}
+		return balance, nil
+	}
+	
+	// ...
+}
+```
+Q. db.Query() 의 err 가 nil dl 이 아닐 경우, return 0, err 실행전에 defer 문 내부가 호출되는 것인가?
+
+**아니다.** `return 0, err` 실행 **전**이 아니라 **후**에 defer 문 내부가 호출된다.
+
+Go에서 `defer`는 **함수가 리턴된 후**에 실행된다. 정확한 순서는 다음과 같다:
+
+1. `db.Query()`가 에러를 반환
+2. `return 0, err` 실행 → named return variable `err`에 에러 값이 세팅됨
+3. **함수가 리턴되기 직전** defer 함수가 실행됨
+4. `err = rows.Close()` 가 실행됨
+
+여기서 문제가 발생한다. `db.Query()`가 실패했을 때 `rows`가 nil일 수 있고, nil인 `rows`에 대해 `rows.Close()`를 호출하면 **panic**이 발생한다.
+
+또한 `rows.Close()`가 정상 실행되더라도, defer 내에서 named return variable `err`를 덮어쓰기 때문에, 원래의 Query 에러가 `rows.Close()`의 결과로 **대체**된다. `Close()`가 nil을 반환하면 원래 에러가 사라지는 버그가 된다.
+
+안전하게 수정하려면 다음과 같이 작성해야 한다:
+
+``` go
+defer func() {
+    closeErr := rows.Close()
+    if err == nil {
+        err = closeErr
+    }
+}()
+```
+
+그리고 `db.Query()` 에러 시 defer 이전에 return하도록 defer 위치를 에러 체크 이후로 옮기면 된다:
+
+``` go
+rows, err := db.Query(query, clientID)
+if err != nil {
+    return 0, err
+}
+defer func() {
+    closeErr := rows.Close()
+    if err == nil {
+        err = closeErr
+    }
+}()
+```
+
+이렇게 하면 Query 실패 시 defer 자체가 등록되지 않아 `rows.Close()` 호출 문제를 피할 수 있다.

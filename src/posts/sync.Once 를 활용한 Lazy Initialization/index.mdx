@@ -1,0 +1,371 @@
+---
+title: 'sync.Once 를 활용한 Lazy Initialization'
+date: 2026-01-25
+desc: 내부 구현부터 프로덕션 적용까지
+thumbnail: /team-member-1.jpeg
+category: Go
+open: true
+---
+
+## 분석 대상 코드
+
+S3 Exporter 코드를 분석하면서 `sync.Once`를 활용한 Lazy Initialization 패턴을 살펴보자. 이 패턴이 해결하려는 문제는 명확하다. 구조체 생성 시점에 AWS 클라이언트를 초기화하면 실제로 Export가 호출되지 않아도 불필요한 AWS API 호출이 발생한다. 반면 매번 Export 호출마다 초기화하면 성능 저하가 불가피하다. 동시에 여러 고루틴에서 Export를 호출하는 상황까지 고려하면, `sync.Once`를 활용한 Lazy Initialization이 자연스러운 선택이다.
+
+---
+
+## 코드 분석
+
+```go
+type S3Exporter struct {
+    Bucket          string
+    AwsConfig       *aws.Config
+    S3ClientOptions []func(*s3.Options)
+    s3Uploader      UploaderAPI
+    init            sync.Once
+}
+
+func (f *S3Exporter) initializeUploader(ctx context.Context) error {
+    var initErr error
+    f.init.Do(func() {
+        if f.AwsConfig == nil {
+            cfg, err := config.LoadDefaultConfig(ctx)
+            if err != nil {
+                initErr = fmt.Errorf("impossible to init S3 exporter: %v", err)
+                return
+            }
+            f.AwsConfig = &cfg
+        }
+
+        client := s3.NewFromConfig(*f.AwsConfig, f.S3ClientOptions...)
+        f.s3Uploader = manager.NewUploader(client)
+    })
+    return initErr
+}
+
+func (f *S3Exporter) Export(ctx context.Context, logger *fflog.FFLogger, events []ffexporter.FeatureEvent) error {
+    if f.s3Uploader == nil {
+        if err := f.initializeUploader(ctx); err != nil {
+            return err
+        }
+    }
+    // ... export 로직
+}
+```
+
+이 패턴에서 주목할 점이 몇 가지 있다.
+
+**nil 체크를 먼저 하는 이유**: `sync.Once.Do()`는 내부적으로 atomic 연산을 수행한다. 대부분의 경우(이미 초기화된 상태)에는 단순 nil 체크만으로 충분하므로, 불필요한 atomic 연산을 피할 수 있다. 물론 `sync.Once` 자체도 fast path 최적화가 되어 있지만, nil 체크는 거의 비용이 없다.
+
+**에러를 클로저 외부 변수로 전달하는 이유**: `sync.Once.Do()`는 `func()`만 받기 때문에 에러를 직접 반환할 수 없다. 클로저가 외부 변수 `initErr`를 캡처하는 방식으로 에러를 전달한다.
+
+---
+
+## sync.Once 내부 동작 심층 분석
+
+`sync.Once`의 실제 구현을 살펴보자.
+
+```go
+type Once struct {
+    done atomic.Uint32
+    m    Mutex
+}
+
+func (o *Once) Do(f func()) {
+    if o.done.Load() == 0 {
+        o.doSlow(f)
+    }
+}
+
+func (o *Once) doSlow(f func()) {
+    o.m.Lock()
+    defer o.m.Unlock()
+    if o.done.Load() == 0 {
+        defer o.done.Store(1)
+        f()
+    }
+}
+```
+
+### atomic.Uint32.Load()의 동작 원리
+
+`done.Load()`는 `atomic.Uint32`의 메서드로, 내부적으로 다음과 같이 구현되어 있다.
+
+```go
+// atomic 패키지 내부
+func (x *Uint32) Load() uint32 {
+    return LoadUint32(&x.v)
+}
+
+func LoadUint32(addr *uint32) uint32 {
+    return *addr  // 컴파일러가 atomic load 명령어로 변환
+}
+```
+
+이 단순해 보이는 코드가 동시성 안전한 이유는 컴파일러와 CPU 아키텍처의 협력 덕분이다.
+
+**x86/x64 아키텍처에서**: 정렬된(aligned) 32비트 값의 읽기/쓰기는 하드웨어 수준에서 자연스럽게 atomic하다. 별도의 lock prefix나 memory barrier 없이도 단일 CPU 명령어로 완료된다. Go 컴파일러는 `atomic.Load`를 단순한 `MOV` 명령어로 변환한다.
+
+**ARM 아키텍처에서**: `LDAR`(Load-Acquire) 명령어를 사용한다. 이 명령어는 읽기와 동시에 acquire semantics를 제공하여, 이후의 모든 메모리 연산이 이 읽기 이후에 실행됨을 보장한다.
+
+핵심은 **memory ordering**이다. `atomic.Load()`는 단순히 값을 읽는 것이 아니라, 해당 값과 관련된 다른 메모리 쓰기의 가시성까지 보장한다. `done.Load() == 1`을 관찰했다면, `done.Store(1)` 이전에 수행된 모든 메모리 쓰기(초기화 로직의 결과)도 반드시 관찰할 수 있다.
+
+### Hot Path 최적화
+
+`Do()` 함수의 첫 번째 줄 `o.done.Load() == 0`이 hot path다. 대부분의 호출(이미 초기화된 이후)은 이 한 줄로 끝난다. Mutex 획득이나 추가 atomic 연산 없이 빠르게 리턴한다.
+
+### Double-Checked Locking이 Go에서 안전한 이유
+
+`doSlow()`에서 Mutex를 획득한 후 다시 `done.Load() == 0`을 확인한다. Java에서 DCL(Double-Checked Locking)이 문제가 됐던 이유는 메모리 모델 때문이었다. 객체 초기화가 완료되기 전에 다른 스레드가 부분적으로 초기화된 객체를 볼 수 있었다.
+
+Go에서는 다르다. `sync.Once`의 구현은 Go 메모리 모델의 happens-before 관계를 활용한다:
+- Mutex unlock은 이후의 Mutex lock보다 happens-before 관계가 성립
+- `done.Store(1)`은 defer로 실행되므로 `f()` 실행 완료 후에 수행
+- 따라서 다른 고루틴이 `done.Load() == 1`을 관찰하면, `f()`의 모든 side effect도 반드시 관찰 가능
+
+### done 필드가 첫 번째인 이유
+
+```go
+type Once struct {
+    done atomic.Uint32  // 첫 번째 필드
+    m    Mutex
+}
+```
+
+Go에서 구조체의 첫 번째 필드는 구조체 자체와 동일한 메모리 주소를 갖는다. 이는 CPU 캐시 라인 최적화와 관련이 있다. hot path에서 가장 자주 접근하는 `done` 필드를 첫 번째에 배치함으로써, 구조체 포인터로부터의 오프셋 계산을 생략할 수 있다.
+
+---
+
+## 에러 처리 전략과 트레이드오프
+
+### 현재 패턴의 한계
+
+앞서 본 코드의 가장 큰 한계는 **초기화 실패 시 재시도가 불가능**하다는 점이다.
+
+```go
+f.init.Do(func() {
+    // 이 함수가 실패하더라도 done은 1로 설정됨
+    // 이후 호출에서는 이 함수가 다시 실행되지 않음
+})
+```
+
+네트워크 오류나 일시적인 AWS 장애로 초기화가 실패하면, 해당 S3Exporter 인스턴스는 영원히 사용 불가 상태가 된다.
+
+### 대안 패턴들
+
+**패턴 A: 에러 캐싱 (현재 방식)**
+
+```go
+var initErr error
+once.Do(func() {
+    initErr = initialize()
+})
+return initErr
+```
+
+장점: 가장 단순하고 대부분의 경우 충분함
+단점: 일시적 오류도 영구화됨
+
+**패턴 B: 재시도 가능한 초기화**
+
+```go
+type RetryableOnce struct {
+    mu     sync.Mutex
+    done   bool
+    result interface{}
+    err    error
+}
+
+func (r *RetryableOnce) Do(f func() (interface{}, error)) (interface{}, error) {
+    r.mu.Lock()
+    defer r.mu.Unlock()
+
+    if r.done {
+        return r.result, r.err
+    }
+
+    r.result, r.err = f()
+    if r.err == nil {
+        r.done = true
+    }
+    return r.result, r.err
+}
+```
+
+장점: 실패 시 재시도 가능
+단점: 매 호출마다 Mutex 획득 필요 (성능 저하)
+
+**패턴 C: atomic.Pointer 활용 (Go 1.19+)**
+
+```go
+type S3Exporter struct {
+    client atomic.Pointer[s3.Client]
+    // ...
+}
+
+func (f *S3Exporter) getClient(ctx context.Context) (*s3.Client, error) {
+    if c := f.client.Load(); c != nil {
+        return c, nil
+    }
+
+    // 경쟁 조건: 여러 고루틴이 동시에 초기화할 수 있음
+    // 하지만 최종적으로 하나의 유효한 클라이언트만 저장됨
+    newClient, err := createClient(ctx)
+    if err != nil {
+        return nil, err
+    }
+
+    f.client.CompareAndSwap(nil, newClient)
+    return f.client.Load(), nil
+}
+```
+
+장점: 재시도 가능, Lock-free
+단점: 여러 클라이언트가 생성될 수 있음 (리소스 낭비 가능)
+
+### 어떤 패턴을 선택할 것인가
+
+- **초기화 실패가 복구 불가능한 설정 오류인 경우**: 패턴 A (sync.Once)
+- **네트워크 등 일시적 오류가 예상되는 경우**: 패턴 B (RetryableOnce)
+- **초기화 비용이 낮고 중복 초기화가 허용되는 경우**: 패턴 C (atomic.Pointer)
+
+이 S3Exporter는 패턴 A를 사용하고 있다. AWS SDK 초기화 실패는 대부분 설정 문제(잘못된 region, 권한 없음)이며, 재시도로 해결되는 경우가 드물기 때문으로 보인다.
+
+---
+
+## 주의해야 할 엣지 케이스
+
+### Context Cancellation과의 상호작용
+
+```go
+func (f *S3Exporter) initializeUploader(ctx context.Context) error {
+    var initErr error
+    f.init.Do(func() {
+        cfg, err := config.LoadDefaultConfig(ctx)
+        // ctx가 cancel되어도 Do() 내부 함수는 끝까지 실행됨
+        // ...
+    })
+    return initErr
+}
+```
+
+`sync.Once.Do()`는 전달된 함수가 완료될 때까지 기다린다. Context가 cancel되어도 초기화는 계속 진행된다. 이것이 의도된 동작인지 확인이 필요하다.
+
+만약 Context cancellation을 존중해야 한다면:
+
+```go
+f.init.Do(func() {
+    select {
+    case <-ctx.Done():
+        initErr = ctx.Err()
+        return
+    default:
+    }
+    // 초기화 로직...
+})
+```
+
+그러나 이 경우 재시도 문제가 다시 발생한다. Context가 cancel되어 초기화가 중단됐더라도, `done`은 1로 설정되어 이후 호출에서 초기화가 재시도되지 않는다.
+
+### Deadlock 가능성
+
+```go
+// 안티패턴: once.Do 내부에서 다른 once.Do 호출
+var once1, once2 sync.Once
+
+once1.Do(func() {
+    once2.Do(func() {
+        once1.Do(func() { // 데드락!
+            // ...
+        })
+    })
+})
+```
+
+같은 `sync.Once`에 대해 중첩 호출하면 데드락이 발생한다. `doSlow()`에서 이미 Mutex를 획득한 상태에서 다시 획득하려 하기 때문이다.
+
+### 긴 Blocking 작업
+
+```go
+// 안티패턴: once.Do 내부에서 긴 blocking 작업
+once.Do(func() {
+    time.Sleep(30 * time.Second)  // 다른 모든 고루틴이 30초간 대기
+    // ...
+})
+```
+
+초기화 중 다른 고루틴들은 `doSlow()`의 Mutex에서 대기한다. 초기화가 오래 걸리면 모든 고루틴이 blocked 상태가 된다. 타임아웃이 필요하다면 초기화 함수 내부에서 처리해야 한다.
+
+### 테스트에서 sync.Once 리셋하기
+
+테스트에서 여러 시나리오를 검증하려면 `sync.Once`를 리셋해야 할 수 있다. 공식적인 방법은 없지만, reflection을 활용할 수 있다.
+
+```go
+func resetOnce(once *sync.Once) {
+    v := reflect.ValueOf(once).Elem()
+    done := v.FieldByName("done")
+
+    // atomic.Uint32의 내부 값을 0으로 리셋
+    ptr := unsafe.Pointer(done.UnsafeAddr())
+    atomic.StoreUint32((*uint32)(ptr), 0)
+}
+```
+
+이 방식은 Go 내부 구현에 의존하므로 프로덕션 코드에서는 사용하지 말아야 한다. 테스트에서만 제한적으로 사용하고, 더 나은 대안은 테스트마다 새로운 인스턴스를 생성하는 것이다.
+
+---
+
+## 성능 특성
+
+### Contention이 높은 환경에서의 동작
+
+초기화가 완료된 후에는 `done.Load() == 0` 체크만 수행하므로 contention이 없다. 문제는 초기화 중일 때다. 여러 고루틴이 동시에 `Do()`를 호출하면:
+
+1. 첫 번째 고루틴이 Mutex를 획득하고 초기화 수행
+2. 나머지 고루틴들은 Mutex에서 대기
+3. 초기화 완료 후 순차적으로 Mutex 획득 → `done == 1` 확인 → 즉시 리턴
+
+초기화 시간이 길수록 대기하는 고루틴이 많아진다. 하지만 이는 초기화가 한 번만 수행되는 것을 보장하기 위한 필수 비용이다.
+
+### Benchmark
+
+```go
+func BenchmarkOnceHotPath(b *testing.B) {
+    var once sync.Once
+    once.Do(func() {})  // 초기화 완료 상태
+
+    b.ResetTimer()
+    b.RunParallel(func(pb *testing.PB) {
+        for pb.Next() {
+            once.Do(func() {})
+        }
+    })
+}
+```
+
+Hot path (이미 초기화된 상태)에서 `sync.Once.Do()`는 단일 atomic load 연산과 거의 동일한 성능을 보인다. 나노초 단위의 오버헤드만 발생한다.
+
+### sync.Once vs sync.Map vs atomic.Pointer 선택 기준
+
+| 사용 사례 | 추천 |
+|-----------|------|
+| 단일 값 초기화, 실패 시 복구 불필요 | `sync.Once` |
+| 키-값 쌍의 동적 캐싱 | `sync.Map` |
+| 값 교체가 필요한 경우 | `atomic.Pointer` |
+| 재시도가 필요한 초기화 | 커스텀 구현 |
+
+---
+
+## 결론: 언제 이 패턴을 선택해야 하는가
+
+`sync.Once`를 활용한 Lazy Initialization은 다음 조건을 만족할 때 적합하다:
+
+- **초기화 비용이 높고 항상 필요하지 않은 경우**: 비용이 낮다면 그냥 생성자에서 초기화해도 된다.
+- **초기화 실패가 복구 불가능한 설정 오류인 경우**: 네트워크 오류 같은 일시적 실패가 예상된다면 재시도 가능한 패턴을 고려하라.
+- **동시성 환경에서 안전해야 하는 경우**: 단일 고루틴에서만 사용된다면 간단한 nil 체크로 충분하다.
+
+트레이드오프를 인지하고 사용하면 `sync.Once`는 강력한 도구다. 내부 구현을 이해하면 왜 이 패턴이 안전한지, 어떤 상황에서 주의가 필요한지 판단할 수 있다.
+
+##### reference
+
+- [Go sync package source](https://pkg.go.dev/sync)
+- [The Go Memory Model](https://go.dev/ref/mem)

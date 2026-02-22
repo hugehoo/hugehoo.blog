@@ -1,0 +1,139 @@
+---
+title: 'don`t copy sync type'
+date: 2026-02-10
+desc: 내부 구현부터 프로덕션 적용까지
+thumbnail: /team-member-1.jpeg
+category: Go
+open: true
+---
+
+## 도입
+
+동시성 코드를 작성할 때 `sync.Mutex` 같은 동기화 타입을 "복사"하면 매우 쉽게 레이스 컨디션이 발생합니다. 그런데 실제 코드에서 이 복사가 눈에 잘 보이지 않는 경우가 많습니다. 대표적인 경우가 **값 타입 리시버** 혹은 **값 전달** 입니다.
+
+아래 두 케이스를 비교해 보겠습니다.
+
+## 케이스 1: 값 타입 리시버로 인해 `sync.Mutex` 복사
+
+``` go
+type Counter struct {
+	mu sync.Mutex
+	counters map[string]int
+}
+
+func NewCounter() *Counter {
+    return &Counter{counters: make(map[string]int)}
+}
+
+// value receiver: Counter가 복사된다.
+func (c Counter) Increment(name string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.counters[name]++
+}
+
+go func() {counter.Increment("foo")}()
+go func() {counter.Increment("bat")}()
+
+```
+
+``` go
+// 값 전달도 동일한 문제를 만든다.
+func AddOne(c Counter, name string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.counters[name]++
+}
+```
+
+위 코드에서 `Increment` 와 `AddOne` 는 `Counter` 를 **값으로 복사**합니다. 이때 `Counter` 내부의 `mu` 도 함께 복사됩니다. 그런데 `counters` 는 **맵(reference type)** 이기 때문에 복사된 구조체가 동일한 맵을 가리킵니다.
+
+결과적으로 이런 상황이 생깁니다.
+
+1. 여러 고루틴이 같은 맵을 공유한다.
+2. 하지만 각 고루틴이 들고 있는 `mu` 는 서로 다른 복사본이다.
+3. 결국 락이 제대로 동기화되지 않아 **데이터 레이스**가 발생한다.
+
+`-race` 옵션을 켜고 테스트하거나, 실제 운영에서 간헐적으로 이상한 값이 튀는 형태로 드러납니다.
+
+## 케이스 2: 포인터 리시버로 복사 방지
+
+``` go
+type Counter struct {
+	mu sync.Mutex
+	counters map[string]int
+}
+
+func NewCounter() *Counter {
+    return &Counter{counters: make(map[string]int)}
+}
+
+// pointer receiver: 복사되지 않는다.
+func (c *Counter) Increment(name string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.counters[name]++
+}
+
+func (c *Counter) Value(name string) int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.counters[name]
+}
+```
+
+포인터 리시버는 `Counter` 자체를 복사하지 않습니다. 따라서 모든 고루틴이 **같은 `mu`** 를 공유하게 되고, 동기화가 올바르게 동작합니다.
+
+## 왜 이런 문제가 생길까
+
+핵심은 "동기화 객체는 복사하면 안 된다" 입니다. `sync.Mutex` 는 내부에 상태를 가지고 있고, 그 상태가 복사되면 락의 일관성이 깨집니다. 더 큰 문제는, 복사된 구조체 안의 참조 타입(`map`, `slice`, `chan`, `pointer`)이 원본과 데이터를 공유할 수 있다는 점입니다. 이때 **락은 분리되고 데이터는 공유**되어 레이스가 발생합니다.
+
+## 값 리시버는 왜 복제되고, 포인터 리시버는 왜 복제되지 않을까
+
+Go는 함수 호출 시 인자를 **값으로 복사**합니다. 리시버도 함수 인자와 동일하게 동작하므로, **값 리시버**는 구조체 전체가 복사됩니다. 즉, `func (c Counter) ...` 는 내부적으로 `func (c Counter) ...` 와 동일한 값 복사가 일어납니다.
+
+반대로 **포인터 리시버**는 포인터 값(주소)만 복사됩니다. `func (c *Counter) ...` 는 `Counter` 자체를 복사하지 않고, 동일한 메모리 주소를 가리키는 포인터만 전달됩니다. 그래서 구조체 내부의 `sync.Mutex` 도 동일한 인스턴스 하나만 존재하게 됩니다.
+
+요약하면:
+
+1. 값 리시버 = 구조체 전체 복사 = `sync.Mutex` 도 복사
+2. 포인터 리시버 = 주소만 복사 = `sync.Mutex` 는 복사되지 않음
+
+## 값 리시버에서 `map` 은 왜 공유될까
+
+`map` 은 참조 타입입니다. 구조체가 값으로 복사될 때 **맵 자체가 깊게 복사되는 것이 아니라, 맵 헤더(포인터, 길이 등)만 복사**됩니다. 실제 데이터 버킷은 복사되지 않고 동일한 메모리를 가리킵니다.
+
+따라서 첫 번째 케이스에서는 이렇게 됩니다.
+
+1. 구조체는 복사됨 → `mu` 는 별도 인스턴스
+2. `map` 은 헤더만 복사됨 → 실제 데이터는 공유
+
+즉, **락은 분리되고 데이터는 공유**되기 때문에 레이스가 발생합니다. 이런 이유로 `map` 을 포함한 구조체에서 값 리시버를 사용할 때는 특히 주의가 필요합니다.
+
+## 실전에서 피하는 방법
+
+1. `sync.Mutex`, `sync.RWMutex`, `sync.Once`, `sync.Cond`, `sync.WaitGroup` 같은 타입은 **항상 포인터 리시버**로 메서드를 정의한다.
+2. 이런 타입을 포함한 구조체는 **값 전달을 피하고 포인터로 전달**한다.
+3. `go vet` 의 `copylocks` 경고를 주의 깊게 본다.
+4. `sync` 타입을 포함한 구조체는 **값 전달을 피하고 포인터로 전달**한다.
+
+``` go
+type Counter struct {
+	mu *sync.Mutex
+	counters map[string]int
+}
+
+func NewCounter() Counter {
+	return Counter{
+		mu: &sync.Mutex{},
+		counters: make(map[string]int),
+	}
+}
+
+```
+
+## 마무리
+
+정리하면, **값 타입 리시버는 구조체를 복사**하고, 구조체 안에 `sync.Mutex` 가 있으면 락까지 복사됩니다. 이 복사된 락은 공유 데이터를 제대로 보호하지 못해 레이스를 만든다. 반대로 **포인터 리시버는 복사를 하지 않기 때문에 안전**합니다.
+
+작게 보이는 리시버 선택이 동시성 안정성을 크게 좌우합니다. `sync` 타입이 포함된 구조체는 기본적으로 "절대 복사하지 않는다" 라는 규칙을 가지고 접근하는 것이 안전합니다.

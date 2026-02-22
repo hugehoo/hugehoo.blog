@@ -1,0 +1,58 @@
+---
+title: 'Zed에서 Cmd+Click (Go to Definition) 이 안 될 때'
+date: 2026-01-31 15:00:00
+desc: Zed IDE에서 컴포넌트 선언으로 이동이 안 되는 문제 해결기
+thumbnail: /team-member-1.jpeg
+category: blog
+open: true
+---
+
+## 증상
+
+Zed 에디터에서 `Cmd + Click` 으로 React 컴포넌트 선언부로 이동이 되지 않는 문제가 발생했다.
+
+## 원인 파악
+
+Zed 로그 (`~/Library/Logs/Zed/Zed.log`) 를 확인해보니 두 가지 문제가 있었다.
+
+### 1. Worktree 가 Trust 되지 않음 (핵심 원인)
+
+``` bash
+Worktree "/Users/.../hugehoo.blog" is not trusted
+Waiting for worktree "/Users/.../hugehoo.blog" to be trusted, before starting language server typescript-language-server
+```
+
+Zed 는 보안상 프로젝트 폴더를 신뢰(trust)하지 않으면 Language Server 를 아예 시작하지 않는다.
+Language Server 가 동작하지 않으니 Go to Definition 도 당연히 동작하지 않았다.
+
+### 2. typescript-language-server 바이너리 누락
+
+``` bash
+missing executable in directory "/Users/.../Zed/languages/typescript-language-server"
+```
+
+Zed 가 관리하는 디렉토리에 typescript-language-server 실행 파일이 없었다.
+글로벌로 설치해 해결했다.
+
+``` bash
+npm install -g typescript-language-server typescript
+```
+
+## 해결
+
+Zed 좌측 상단의 **Restricted Mode** 를 클릭하여 루트 디렉토리의 모든 프로젝트를 Trust 하도록 설정했다.
+Trust 이후 Zed 가 Language Server 를 정상적으로 시작했고, `Cmd + Click` 이 동작하게 되었다.
+
+## 참고: JetBrains Keymap
+
+Zed 설정에서 `"base_keymap": "JetBrains"` 을 사용 중이었는데, JetBrains 키맵에서는 Go to Definition 단축키가 다를 수 있다.
+혼동을 피하려면 기본 키맵을 사용하거나, JetBrains 키맵에서의 단축키 (`Cmd+B`) 를 사용하면 된다.
+
+## 정리
+
+| 확인 항목 | 설명 |
+|---|---|
+| Project Trust | Zed 가 프로젝트를 trust 하지 않으면 LSP 가 시작되지 않는다 |
+| Language Server 설치 여부 | `typescript-language-server` 가 설치되어 있어야 한다 |
+| Keymap 설정 | JetBrains keymap 사용 시 단축키가 다를 수 있다 |
+| Zed 로그 확인 | `~/Library/Logs/Zed/Zed.log` 에서 LSP 관련 에러를 확인할 수 있다 |

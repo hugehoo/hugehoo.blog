@@ -1,7 +1,6 @@
-### 글감
-
-- [ ] ratelimiter 를 뚫을 수 있을까?
-- [ ] scheme registry
+### todo
+- add [humanizer](https://github.com/blader/humanizer) pipeline
+- skills, agents 를 활용하여 효율적인 글쓰기 파이프라인 작성
 
 ### ref
 

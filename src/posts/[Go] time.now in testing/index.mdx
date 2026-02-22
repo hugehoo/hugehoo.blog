@@ -1,0 +1,154 @@
+---
+title: 'time.Now() 으로 flaky test 가 되는 이유'
+date: 2026-02-15
+desc:
+thumbnail: /team-member-1.jpeg
+category: Go
+open: true
+---
+
+## 문제의 코드
+
+다음과 같은 테스트가 있다고 하자.
+
+
+```go
+
+type Cache struct {
+	mu     sync.RWMutex
+	events []Event
+}
+
+type Event struct {
+	Timestamp time.Time
+	Data      string
+}
+
+func (c *Cache) TrimOlderThan(since time.Duration) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	t := time.Now().Add(-since)
+	for i := 0; i < len(c.events); i++ {
+		if c.events[i].Timestamp.After(t) {
+			c.events = c.events[i:]
+			return
+		}
+	}
+}
+```
+
+``` go 
+func TestCache_TrimOlderThan(t *testing.T) {
+	events := []Event{
+		{Timestamp: time.Now().Add(-20 * time.Millisecond)},
+		{Timestamp: time.Now().Add(-10 * time.Millisecond)},
+		{Timestamp: time.Now().Add(10 * time.Millisecond)},
+	}
+	cache := &Cache{}
+	cache.Add(events)
+	cache.TrimOlderThan(15 * time.Millisecond)
+	got := cache.GetAll()
+	expected := 2
+	if len(got) != expected {
+		t.Fatalf("expected %d, got %d", expected, len(got))
+	}
+}
+```
+
+이벤트 생성도 `time.Now()`, 컷오프 계산도 `time.Now()`를 쓰니까 기준이 맞아 보인다. 나도 처음엔 그렇게 생각했다. 그런데 이 테스트는 CI에서 간헐적으로 깨진다.
+
+---
+
+## "같은 now"가 아니다
+
+`time.Now()`가 여러 번 호출되면, 매번 다른 시각이 찍힌다.
+
+- 첫 번째 이벤트 시각 계산 시점: t1
+- 두 번째 이벤트 시각 계산 시점: t2
+- 세 번째 이벤트 시각 계산 시점: t3
+- `TrimOlderThan` 컷오프 계산 시점: t4
+
+t1 == t2 == t3 == t4일 리가 없다. 호출 사이에 함수 호출 비용, 스케줄링, GC, CI 부하 같은 지연이 끼어든다.
+
+---
+
+## 경계값에서 터지는 이유
+
+기대값 2개의 의도는 이렇다.
+
+- -20ms 이벤트는 제거
+- -10ms, +10ms 이벤트는 유지
+
+그런데 실제 판단은 이렇게 된다.
+
+- 두 번째 이벤트: event2 = t2 - 10ms
+- 컷오프: cutoff = t4 - 15ms
+- 유지 조건: `event2.After(cutoff)`
+
+수식으로 바꾸면:
+
+```text
+t2 - 10ms > t4 - 15ms
+<=> t4 - t2 < 5ms
+```
+
+t2에서 t4까지의 지연이 5ms 미만이면 2번째 이벤트가 살아남고, 5ms 이상이면 제거된다.
+
+로컬에서는 보통 빠르게 지나가서 통과한다. CI에서는 5ms 넘기기 쉬워서 깨진다. 내 경험상 GitHub Actions에서 이런 밀리초 단위 경계 테스트는 거의 반드시 한 번은 터진다.
+
+---
+
+## After의 strict 비교가 문제를 키운다
+
+`time.Time.After`는 a > b일 때만 true다. a == b이면 false.
+
+이벤트 시간이 컷오프와 정확히 같아지는 순간에도 제거된다. 시간 오차가 아무리 작아도 결과가 바뀔 수 있다.
+
+---
+
+## 왜 겉으로는 안정적으로 보였나
+
+`time.Now().Add(-10ms)`와 `time.Now().Add(-15ms)` 숫자만 보면 "-10ms가 더 최신이니 당연히 남겠지"라고 생각하게 된다.
+
+그런데 실제로는:
+
+```text
+(이벤트 생성 시점의 now) vs (trim 실행 시점의 now)
+```
+
+이 두 now가 다르다. -10과 -15의 차이(5ms)보다 두 now 사이에 흐른 실제 시간(t4 - t2)이 더 크면, 결과가 뒤집힌다.
+
+---
+
+## 고치는 법
+
+시간 소스를 주입하면 된다.
+
+Cache에 `now func() time.Time` 필드를 두고, `TrimOlderThan`에서 `time.Now()` 대신 `c.now()`를 쓴다. 테스트에서는 고정된 시각을 넣는다.
+
+```go
+base := parseTime(t, "2020-01-01T12:00:00.060Z")
+cache := &Cache{
+	now: func() time.Time { return base },
+}
+
+events := []Event{
+	{Timestamp: base.Add(-20 * time.Millisecond)},
+	{Timestamp: base.Add(-10 * time.Millisecond)},
+	{Timestamp: base.Add(10 * time.Millisecond)},
+}
+
+cache.Add(events)
+cache.TrimOlderThan(15 * time.Millisecond)
+```
+
+모든 시간 계산이 같은 base를 기준으로 하니까, 머신 속도나 CI 부하와 상관없이 결과가 동일하다.
+
+---
+
+flaky의 원인은 시간값 자체가 아니라, 시간 기준이 비결정적(non-deterministic)이라는 점이다. `time.Now()`를 테스트에서 직접 쓰는 순간, 테스트 결과는 환경에 종속된다.
+
+##### ref
+
+- [100 Go Mistakes and How to Avoid Them - #87 time api](https://github.com/teivah/100-go-mistakes/tree/master/src/11-testing/87-time-api)
