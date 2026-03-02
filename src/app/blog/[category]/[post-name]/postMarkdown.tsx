@@ -56,7 +56,7 @@ const PostMarkdown = ({ params, containerStyles }: Props) => {
     <>
       <title>{decodedTitle}</title>
       <div className="post-meta mb-10">
-        <div className="text-4xl font-semibold">{decodedTitle}</div>
+        <div className="text-3xl font-semibold">{decodedTitle}</div>
         <div className="mt-3">
           <span className="text-gray-500">
             {date.toLocaleDateString('en-US', {
