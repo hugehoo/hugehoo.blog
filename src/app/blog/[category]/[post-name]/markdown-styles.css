@@ -86,7 +86,11 @@
 }
 
 .dark .md-strong {
-  background: linear-gradient(to top, rgba(202, 138, 4, 0.3) 50%, transparent 60%);
+  background: linear-gradient(
+    to top,
+    rgba(202, 138, 4, 0.3) 50%,
+    transparent 60%
+  );
 }
 
 .md-blockquote {
