@@ -19,7 +19,13 @@ const TOC = ({ content }: TOCProps) => {
   useEffect(() => {
     const headings: matchTitle[] = [];
     const regex = /^(#{1,3})\s(.+)$/;
+    let isCodeBlock = false;
     content.split('\n').forEach((line) => {
+      if (line.startsWith('```')) {
+        isCodeBlock = !isCodeBlock;
+        return;
+      }
+      if (isCodeBlock) return;
       const match = regex.exec(line);
       if (match) {
         const title = match[2];
