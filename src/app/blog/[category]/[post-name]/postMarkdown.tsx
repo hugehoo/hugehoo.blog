@@ -11,6 +11,7 @@ import remarkGfm from 'remark-gfm';
 import rehypeRaw from 'rehype-raw';
 import React from 'react';
 import { useTheme } from 'next-themes';
+import './markdown-styles.css';
 
 const getHeadingText = (node: any) => {
   return node!!.children[0] && 'value' in node!!.children[0]
@@ -186,9 +187,9 @@ const PostMarkdown = ({ params, containerStyles }: Props) => {
             p: ({ node, ...props }) => (
               <p
                 style={{
-                  fontSize: '0.99em',
+                  fontSize: '1em',
                   marginBottom: '0.5em',
-                  lineHeight: '2.1em',
+                  lineHeight: '1.8em',
                 }}
                 {...props}
               />
@@ -215,7 +216,12 @@ const PostMarkdown = ({ params, containerStyles }: Props) => {
                     unoptimized={true}
                     width={0}
                     height={0}
-                    style={{ width: '80%', height: 'auto', borderRadius: '0.3em', boxShadow: '0 4px 6px rgba(0, 0, 0, 0.1)' }}
+                    style={{
+                      width: '80%',
+                      height: 'auto',
+                      borderRadius: '0.3em',
+                      boxShadow: '0 4px 6px rgba(0, 0, 0, 0.1)',
+                    }}
                   />
                 </span>
               );
@@ -280,12 +286,8 @@ const PostMarkdown = ({ params, containerStyles }: Props) => {
                 {...props}
               />
             ),
-            tbody: ({ node, ...props }) => (
-              <tbody {...props} />
-            ),
-            tr: ({ node, ...props }) => (
-              <tr className="md-tr" {...props} />
-            ),
+            tbody: ({ node, ...props }) => <tbody {...props} />,
+            tr: ({ node, ...props }) => <tr className="md-tr" {...props} />,
           }}
         >
           {content}
