@@ -1,25 +1,49 @@
+/* ── 블로그 디자인 변수 ── */
+:root {
+  --md-border: #e1e4e8;
+  --md-surface: #f6f8fa;
+  --md-surface2: #f0f2f4;
+  --md-text: #1a1a1a;
+  --md-muted: #6b7280;
+  --md-accent: #d44f25;
+  --md-accent2: #1a6fc4;
+  --md-accent3: #1a8754;
+  --md-code-bg: #f6f8fa;
+  --md-blockquote-border: #d44f25;
+  --md-blockquote-bg: rgba(212, 79, 37, 0.06);
+}
+
+.dark {
+  --md-border: #2a2a30;
+  --md-surface: #17171a;
+  --md-surface2: #1e1e22;
+  --md-text: #e8e6e0;
+  --md-muted: #888580;
+  --md-accent: #e8855a;
+  --md-accent2: #5a9ee8;
+  --md-accent3: #7ed8a4;
+  --md-code-bg: #131316;
+  --md-blockquote-border: #e8855a;
+  --md-blockquote-bg: rgba(232, 133, 90, 0.1);
+}
+
+/* ── 본문 기본 ── */
 .markdown-body {
-  font-family:
-    Segoe UI,
-    Apple Color Emoji,
-    -apple-system,
-    BlinkMacSystemFont,
-    Helvetica,
-    Arial,
-    sans-serif,
-    Segoe UI Emoji;
   font-size: 1rem;
-  line-height: 1.75;
+  line-height: 1.85;
   word-wrap: break-word;
+  color: var(--md-text);
 }
 
 .markdown-body a {
-  color: #0366d6;
-  text-decoration: none;
+  color: var(--md-accent2);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  transition: color 0.15s;
 }
 
 .markdown-body a:hover {
-  text-decoration: underline;
+  color: var(--md-accent);
 }
 
 .markdown-body strong {
@@ -27,25 +51,11 @@
 }
 
 .markdown-body hr {
-  height: 0.25em;
+  height: 1px;
   padding: 0;
-  margin: 24px 0;
-  background-color: #e1e4e8;
+  margin: 48px 0;
+  background-color: var(--md-border);
   border: 0;
-}
-
-.markdown-body blockquote {
-  padding: 0 1em;
-  color: #6a737d;
-  border-left: 0.25em solid #dfe2e5;
-}
-
-.markdown-body code {
-  padding: 0.2em 0.4em;
-  margin: 0;
-  font-size: 85%;
-  background-color: rgba(27, 31, 35, 0.05);
-  border-radius: 3px;
 }
 
 .markdown-body img {
@@ -64,23 +74,19 @@
   height: auto;
 }
 
-/* Markdown element styles for dark mode support */
+/* ── 헤딩 ── */
 .md-heading {
-  color: #111;
+  color: var(--md-text);
+  letter-spacing: -0.01em;
 }
 
-.dark .md-heading {
-  color: #e5e7eb;
-}
-
+/* ── 링크 ── */
 .md-link {
-  color: #3498db;
+  color: var(--md-accent2);
+  text-underline-offset: 3px;
 }
 
-.dark .md-link {
-  color: #60a5fa;
-}
-
+/* ── strong 하이라이트 ── */
 .md-strong {
   background: linear-gradient(to top, #fff3b9 50%, transparent 60%);
 }
@@ -93,66 +99,95 @@
   );
 }
 
+/* ── 인용 블록 ── */
 .md-blockquote {
-  color: #555;
-  border-left: 4px solid #ccc;
-  background-color: #f9f9f9;
+  color: var(--md-text);
+  border-left: 3px solid var(--md-blockquote-border);
+  background-color: var(--md-blockquote-bg);
+  border-radius: 0 6px 6px 0;
 }
 
-.dark .md-blockquote {
-  color: #b0b0b0;
-  border-left-color: #555;
-  background-color: #1e2028;
-}
-
+/* ── 테이블 ── */
 .md-thead {
-  background-color: #f8f9fa;
-}
-
-.dark .md-thead {
-  background-color: #1e2028;
+  background-color: var(--md-surface2);
 }
 
 .md-th {
-  border: 1px solid #dee2e6;
-  background-color: #f8f9fa;
-}
-
-.dark .md-th {
-  border-color: #374151;
-  background-color: #1e2028;
+  border-bottom: 1px solid var(--md-border);
+  background-color: var(--md-surface2);
+  color: var(--md-muted);
+  font-size: 0.75rem;
+  letter-spacing: 0.06em;
 }
 
 .md-td {
-  border: 1px solid #dee2e6;
+  border-bottom: 1px solid var(--md-border);
+  color: var(--md-text);
 }
 
-.dark .md-td {
-  border-color: #374151;
+.md-tr:last-child .md-td {
+  border-bottom: none;
 }
 
-.md-tr {
-  border-bottom: 1px solid #dee2e6;
+.md-tr:hover .md-td {
+  background-color: var(--md-surface);
 }
 
-.dark .md-tr {
-  border-bottom-color: #374151;
+/* ── 인라인 코드 ── */
+.code-inline {
+  font-family: 'JetBrains Mono', 'Source Code Pro', monospace;
+  font-size: 0.82em;
+  color: var(--md-accent3);
+  padding: 2px 7px;
+  background: var(--md-surface2);
+  border: 1px solid var(--md-border);
+  border-radius: 4px;
+  font-weight: 400;
 }
 
-/* Dark mode overrides for markdown-body */
-.dark .markdown-body a {
-  color: #60a5fa;
+/* ── 코드 블록 래퍼 (SyntaxHighlighter 감싸는 div) ── */
+.code-block-wrapper {
+  margin: 24px 0;
+  border-radius: 6px;
+  overflow: hidden;
+  border: 1px solid var(--md-border);
 }
 
-.dark .markdown-body hr {
-  background-color: #374151;
+.code-block-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 16px;
+  background: var(--md-surface);
+  border-bottom: 1px solid var(--md-border);
 }
 
-.dark .markdown-body blockquote {
-  color: #9ca3af;
-  border-left-color: #4b5563;
+.code-block-dots {
+  display: flex;
+  gap: 6px;
 }
 
-.dark .markdown-body code {
-  background-color: rgba(255, 255, 255, 0.1);
+.code-block-dots span {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--md-border);
+}
+
+.code-block-lang {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  color: var(--md-muted);
+  letter-spacing: 0.08em;
+}
+
+/* SyntaxHighlighter 내부 스타일 보정 */
+.code-block-wrapper > pre,
+.code-block-wrapper > div > pre {
+  margin: 0 !important;
+  border-radius: 0 !important;
+  border: none !important;
+  font-family: 'JetBrains Mono', 'Source Code Pro', monospace !important;
+  font-size: 13.5px !important;
+  line-height: 1.7 !important;
 }
