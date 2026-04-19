@@ -8,6 +8,7 @@
   --md-accent: #d44f25;
   --md-accent2: #1a6fc4;
   --md-accent3: #1a8754;
+  --md-accent4: #d6336c;
   --md-code-bg: #f6f8fa;
   --md-blockquote-border: #d44f25;
   --md-blockquote-bg: rgba(212, 79, 37, 0.06);
@@ -137,7 +138,7 @@
 .code-inline {
   font-family: 'JetBrains Mono', 'Source Code Pro', monospace;
   font-size: 0.82em;
-  color: var(--md-accent3);
+  color: var(--md-accent4);
   padding: 2px 7px;
   background: var(--md-surface2);
   border: 1px solid var(--md-border);
