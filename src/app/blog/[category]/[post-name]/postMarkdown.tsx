@@ -42,13 +42,23 @@ const PostMarkdown = ({ params, containerStyles }: Props) => {
     value,
   }) => {
     return (
-      <SyntaxHighlighter
-        language={language}
-        style={syntaxTheme}
-        className="language-bash hljs"
-      >
-        {value}
-      </SyntaxHighlighter>
+      <div className="code-block-wrapper">
+        <div className="code-block-header">
+          <div className="code-block-dots">
+            <span />
+            <span />
+            <span />
+          </div>
+          <span className="code-block-lang">{language}</span>
+        </div>
+        <SyntaxHighlighter
+          language={language}
+          style={syntaxTheme}
+          customStyle={{ margin: 0, borderRadius: 0, border: 'none' }}
+        >
+          {value}
+        </SyntaxHighlighter>
+      </div>
     );
   };
 
