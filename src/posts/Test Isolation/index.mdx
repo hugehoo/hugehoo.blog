@@ -1,0 +1,251 @@
+---
+title: '오픈소스로 배우는 Go 테스트 격리성'
+date: 2026-04-25
+desc: 컴파일러가 막아주는 테스트
+thumbnail: /team-member-1.jpeg
+ogImage: /b-tree-2.png
+category: 'go'
+open: true
+---
+
+<i>이 글의 모든 codebase 는 grpc-go 를 기준으로 설명합니다.</i>
+
+## 1. 화이트 박스 테스트와 블랙 박스 테스트
+
+**화이트 박스 테스트(Whitebox Test)** 는 테스트 대상의 내부 구현에 직접 접근할 수 있는 테스트를 의미한다.
+구조체의 private 필드, 내부 함수, 캐시 구조 등을 직접 검증할 수 있다. <br/>
+반면 **블랙 박스 테스트(Blackbox Test)** 는 공개 API만으로 동작을 검증한다. 내부가 어떻게 구현되었는지는 알 수 없고 오직 입력과 출력만 검증한다.
+
+| 구분 | 화이트 박스 | 블랙 박스 |
+|------|------------|----------|
+| 접근 범위 | private 필드, 내부 함수 포함 전체 | 공개 API만 |
+| 리팩토링 영향 | 내부 구현 변경 시 테스트 깨짐 | 동작이 같으면 영향 없음 |
+| 비유 | 자판기 내부 기어를 열어서 검사 | 동전을 넣고 음료가 나오는지 확인 |
+
+대부분의 언어에서 이 구분은 개발자의 의지에 달려 있다.
+private 필드에 접근하지 않겠다고 스스로 결정해야 한다.
+Go에서는 조금 다르다.
+
+대부분의 언어는 이 구분을 개발자의 의도에 따라 구현할 수 있지만 Go 에서는 조금 다르다.
+
+---
+
+## 2. Go만의 테스트 패키지 규칙
+
+Go에서 테스트 파일의 패키지 선언은 두 가지 중 하나를 택한다.
+
+```go
+// 1. 화이트 박스 — 같은 패키지
+package balancergroup
+
+// 2. 블랙 박스 — _test 접미사가 붙은 별도 패키지
+package balancergroup_test
+```
+
+두 파일 모두 동일한 디렉토리(`internal/balancergroup/`)에 위치한다. `/balancegroup`, `/balancegroup_test`처럼 별도의 테스트 디렉토리를 만들지 않는다.
+
+go 는 원래 같은 디렉토리의 모든 `.go` 파일이 같은 패키지명을 사용하지만 `_test.go` 파일에는 예외가 있다. 이 파일만 유일하게 원래 패키지명에 `_test`를 붙인 다른 이름을 선언할 수 있고, 이렇게 하면 컴파일러가 해당 파일을 외부 패키지로 취급한다. 접미사에 `_test` 가 붙은 패키지를 외부 패키지로 취급하는 이유가 무엇일까? Go compiler 가 블랙 박스 테스트를 언어 수준에서 지원하기 때문이다. 같은 `internal/balancergroup/` 에 있어도 서로 격리된 패키지로 취급되면 테스트 코드는 본래 코드(구조체)의 private 필드나 심볼에 접근이 차단된다.
+
+| 개념 | 패키지 선언 | 디렉토리 | 비공개 심볼 접근 |
+|------|------------|---------|----------------|
+| 화이트 박스 테스트 | `package balancergroup` | `internal/balancergroup/` | 가능 |
+| 블랙 박스 테스트 | `package balancergroup_test` | `internal/balancergroup/` | 컴파일러가 차단 |
+
+여기서 "공개(public)"와 "비공개(private)" 여부는 Go의 대문자/소문자 규칙을 따른다.
+
+```go
+// 공개 — 외부 패키지에서 접근 가능
+func New(opts Options) *BalancerGroup { ... }
+type Options struct { ... }
+func (bg *BalancerGroup) Add(id string, builder balancer.Builder) { ... }
+func (bg *BalancerGroup) Close() { ... }
+
+// 비공개 — 패키지 내부에서만 접근 가능
+func (bg *BalancerGroup) handleResolverError(id string, err error) { ... }
+type subBalancerWrapper struct { ... }
+var idleTimeout = 10 * time.Minute
+```
+
+`package balancergroup_test`로 선언된 테스트 파일에서는 `New`, `Options`, `Add` 같은 대문자 식별자만 사용할 수 있다. `handleResolverError`나 `subBalancerWrapper`에 접근하려 하면 컴파일 에러가 발생한다.
+
+그럼 실제 오픈소스 프로젝트에서 이 규칙이 어떻게 적용되는지 살펴보자.
+
+---
+
+## 3. grpc-go 이슈: move to test only package
+
+gRPC-Go의 `internal/balancergroup/` 패키지에는 16개의 테스트가 있었다. 이 테스트들은 모두 `package balancergroup`(화이트 박스)으로 선언되어 있었지만, 실제로 비공개 심볼을 하나도 사용하지 않고 있었다. 공개 API만으로 충분히 검증 가능한 테스트들이 화이트 박스 패키지에 묶여 있던 셈이다.
+[GitHub Issue #8996](https://github.com/grpc/grpc-go/issues/8996)에 이 16개의 테스트를 `package balancergroup_test`(블랙 박스)로 마이그레이션하는 내용이 등록되었다.
+
+<br/>
+
+### 화이트 박스에서 가능한 위험한 코드
+
+화이트 박스 선언 상태에서는 이런 코드가 컴파일된다.
+
+```go
+// package balancergroup — 내부 구현에 직접 접근
+func TestCacheExpiry(t *testing.T) {
+    bg := New(Options{SubBalancerCloseTimeout: time.Second})
+    bg.Add("b1", rrBuilder)
+    bg.Remove("b1")
+
+    bg.cacheMu.Lock()
+    if _, ok := bg.balancerCache["b1"]; !ok {
+        t.Fatal("b1이 캐시에 없음")
+    }
+    bg.cacheMu.Unlock()
+}
+```
+`bg.cacheMu`와 `bg.balancerCache`는 비공개 필드다. 테스트가 내부 캐시 구현에 직접 의존하고 있다. 왜 내부 구현에 직접 의존하면 안 될까? 내부 구현은 언제든 바뀔 수 있기 때문이다. 비공개 필드는 외부와의 계약이 아니라 개발자가 비교적 쉽게 수정할 수 있는 영역이다. 동작이 동일하더라도 내부 구조가 바뀌는 순간 테스트는 깨진다.
+
+<br/>
+
+### 블랙 박스 전환 후의 코드
+
+블랙 박스로 전환하면 패키지 한정자가 추가되고, 공개 API만 사용하게 된다.
+
+```go
+// package balancergroup_test — 공개 API만 사용
+func initBalancerGroupForCachingTest(t *testing.T, idleCacheTimeout time.Duration) (
+    *weightedaggregator.Aggregator,
+    *balancergroup.BalancerGroup,
+    *testutils.BalancerClientConn,
+    map[string]*testutils.TestSubConn,
+) {
+    cc := testutils.NewBalancerClientConn(t)
+    gator := weightedaggregator.New(cc, nil, testutils.NewTestWRR)
+    gator.Start()
+    bg := balancergroup.New(balancergroup.Options{
+        CC:                      cc,
+        BuildOpts:               balancer.BuildOptions{},
+        StateAggregator:         gator,
+        Logger:                  nil,
+        SubBalancerCloseTimeout: idleCacheTimeout,
+    })
+    // ...
+}
+```
+
+`New(Options{...})`가 `balancergroup.New(balancergroup.Options{...})`로 바뀌었다. 외부 패키지이므로 패키지 이름을 명시해야 한다.
+
+| 변경 전 (화이트 박스) | 변경 후 (블랙 박스) |
+|---|---|
+| `New(Options{...})` | `balancergroup.New(balancergroup.Options{...})` |
+| `*BalancerGroup` | `*balancergroup.BalancerGroup` |
+| `ParseConfig(...)` | `balancergroup.ParseConfig(...)` |
+
+<br/>
+
+### 화이트 박스가 정말 필요한 경우
+그럼 모든 테스트를 블랙 박스로만 작성해야 하는걸까?
+모든 테스트를 블랙 박스로 전환할 수 있는 것은 아니다. grpc-go 프로젝트의 `health/server_internal_test.go`를 보자.
+
+```go
+// package health — 화이트 박스
+func (s) TestShutdown(t *testing.T) {
+    s := NewServer()
+    s.SetServingStatus(testService, healthpb.HealthCheckResponse_SERVING)
+
+    // 비공개 필드 s.statusMap에 직접 접근
+    status := s.statusMap[testService]
+    if status != healthpb.HealthCheckResponse_SERVING {
+        t.Fatalf("status for %s is %v, want %v",
+            testService, status, healthpb.HealthCheckResponse_SERVING)
+    }
+
+    // 비공개 필드 s.mu에 직접 접근
+    s.mu.Lock()
+    status = s.statusMap[testService]
+    s.mu.Unlock()
+}
+```
+
+이 테스트는 `s.statusMap`과 `s.mu`라는 비공개 필드에 직접 접근하여 공개 API만으로는 검증할 수 없는 내부 동시성 안전성을 테스트한다. 이런 경우에는 화이트 박스 테스트가 적절하다.
+
+---
+
+## 4. 꼭 필요한 수정일까?
+
+처음 이슈를 보고 굳이 라는 생각도 들었다. 
+balancergroup의 16개 테스트는 모두 정상적으로 통과했고 비공개 심볼을 사용하는 코드도 없었다. 왜 굳이 블랙 박스로 전환하고자 이슈가 등록됐을까?
+
+추측컨대 이 변경은 수정적 변경(corrective)이 아니라 **예방적 변경(preventive)** 이다.
+
+잠금장치가 없는 문을 떠올려 보자. 아무도 열지 않았다고 해서 잠겨 있는 게 아니다. 누군가 문을 열기 전에 잠금장치를 다는 것이 예방이다.
+
+기존의 `package balancergroup` 선언은 비공개 필드에 접근할 수 있는 문을 열어둔 셈이다. 현재는 누구도 그 문을 사용하지 않지만 새 개발자가 테스트를 추가할 때 `bg.cacheMu.Lock()`처럼 내부 구현에 의존하는 코드를 작성할 수 있다. 코드는 컴파일되고 테스트 코드도 정상적으로 실행될 것 이다.
+
+6개월 후 누군가 캐시 구현을 `map`에서 `sync.Map`으로 리팩토링하면 어떻게 될까?
+
+- `bg.cacheMu` 삭제됨
+- `bg.balancerCache["b1"]` 타입이 바뀜
+- **동작은 동일한데 테스트가 컴파일 에러로 깨짐**
+
+<br/>
+
+블랙 박스 테스트(`package balancergroup_test`)로 전환하면 컴파일러가 비공개 필드 접근을 원천 차단한다. 미래의 실수를 사람이 아니라 컴파일러에게 맡기는 것이다.
+
+---
+
+## 5. 관찰 가능한 동작을 테스트하라
+
+블랙 박스 테스트는 공개 API만 사용하도록 강제한다. 블랙 박스 테스트의 장점은 무엇일까? 내부 구현이 변경되더라도 공개 API 의 동작이 동일하면 테스트가 깨지지 않는다. 즉 리팩토링시 갑작스레 발목잡는 일이 덜 발생한다.
+
+<br/>
+
+그렇다면 내부 상태의 변화를 어떻게 검증할까? 이에 관해서 Martin Fowler 는 다음과 같이 말했다.
+
+> Don't reflect your internal code structure within your unit tests. Test for observable behaviour instead. <br/>
+
+즉 private 메서드 같은 상세한 구현을 테스트하는 것이 아닌 **관찰 가능한 동작(observable behavior)** 을 테스트 해야한다.
+
+`balancergroup`의 블랙 박스 테스트는 채널을 활용하여 외부에서 관찰 가능한 이벤트를 기다린다.
+
+```go
+// package balancergroup_test
+m1 := make(map[string]*testutils.TestSubConn)
+for i := 0; i < 4; i++ {
+    addrs := <-cc.NewSubConnAddrsCh  // 새 연결 주소가 생성될 때까지 대기
+    sc := <-cc.NewSubConnCh          // 새 SubConn이 생성될 때까지 대기
+    m1[addrs[0].Addr] = sc
+    sc.UpdateState(balancer.SubConnState{ConnectivityState: connectivity.Connecting})
+    sc.UpdateState(balancer.SubConnState{ConnectivityState: connectivity.Ready})
+}
+
+p1 := <-cc.NewPickerCh  // 새 Picker가 생성될 때까지 대기
+want := []balancer.SubConn{
+    m1[testBackendAddrs[0].Addr], m1[testBackendAddrs[0].Addr],
+    m1[testBackendAddrs[1].Addr], m1[testBackendAddrs[1].Addr],
+    m1[testBackendAddrs[2].Addr], m1[testBackendAddrs[3].Addr],
+}
+if err := testutils.IsRoundRobin(want, testutils.SubConnFromPicker(p1)); err != nil {
+    t.Fatalf("want %v, got %v", want, err)
+}
+```
+
+`<-cc.NewSubConnAddrsCh`, `<-cc.NewSubConnCh`, `<-cc.NewPickerCh`는 모두 채널에서 값을 꺼내는 연산이다. 내부 캐시를 직접 들여보는 대신 **외부에서 관찰할 수 있는 이벤트가 발생하는지**를 기다린다.
+
+자판기에 비유하면 내부 기어가 제대로 돌아가는지 뚜껑을 열어 확인하는 것이 아닌, 동전을 넣었을 때 음료가 나오는지를 확인하는 것이다.
+이것이 블랙 박스 테스트가 강제하는 설계 패턴으로 내부 구현이 바뀌어도 관찰 가능한 동작이 같다면 테스트는 깨지지 않는다.
+
+---
+
+## 6. 마무리
+
+테스트 격리성은 테스트가 내부 구현에 의존하지 않도록 경계를 긋는 것이다. Go는 패키지 선언만으로 그 경계를 컴파일러에게 위임할 수 있다.
+이번 컨트리뷰션을 통해 실제 현업에서도 적용할 수 있는 체크리스트 세 가지를 남긴다.
+
+1. 테스트 파일의 패키지 선언을 확인하고, `_test` 접미사 없이 같은 패키지로 선언되어 있다면 비공개 심볼을 실제로 사용하고 있는지 점검한다.
+2. 비공개 심볼을 사용하지 않는 화이트 박스 테스트는 블랙 박스로 전환을 고려한다. 패키지 한정자를 추가하는 것만으로 충분하다.
+3. 새로운 테스트를 작성할 때 기본값을 `package xxx_test`(블랙 박스)로 설정한다. 화이트 박스가 필요한 경우에만 의식적으로 선택한다.
+
+<br/>
+
+### Reference
+
+- [grpc-go Issue #8996](https://github.com/grpc/grpc-go/issues/8996)
+- [grpc-go PR #9094](https://github.com/grpc/grpc-go/pull/9094)
+- [grpc-go internal/balancergroup](https://github.com/grpc/grpc-go/tree/master/internal/balancergroup)
+- [The Practical Test Pyramid
+](https://martinfowler.com/articles/practical-test-pyramid.html#:~:text=What%20do%20you%20do%20instead%3F%20Don%27t%20reflect%20your%20internal%20code%20structure%20within%20your%20unit%20tests.%20Test%20for%20observable%20behaviour%20instead.%20Think%20about)
