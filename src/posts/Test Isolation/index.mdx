@@ -1,7 +1,7 @@
 ---
 title: '오픈소스로 배우는 Go 테스트 격리성'
 date: 2026-04-25
-desc: 컴파일러가 막아주는 테스트, 개발자가 참아야 하는 테스트
+desc: 컴파일러가 막아주는 테스트
 thumbnail: /team-member-1.jpeg
 ogImage: /b-tree-2.png
 category: 'go'
@@ -239,8 +239,6 @@ if err := testutils.IsRoundRobin(want, testutils.SubConnFromPicker(p1)); err != 
 1. 테스트 파일의 패키지 선언을 확인하고, `_test` 접미사 없이 같은 패키지로 선언되어 있다면 비공개 심볼을 실제로 사용하고 있는지 점검한다.
 2. 비공개 심볼을 사용하지 않는 화이트 박스 테스트는 블랙 박스로 전환을 고려한다. 패키지 한정자를 추가하는 것만으로 충분하다.
 3. 새로운 테스트를 작성할 때 기본값을 `package xxx_test`(블랙 박스)로 설정한다. 화이트 박스가 필요한 경우에만 의식적으로 선택한다.
-
-테스트 코드에서 문을 잠그는 것은 지금의 내가 아니라 6개월 뒤의 동료를 위한 일이다.
 
 <br/>
 
