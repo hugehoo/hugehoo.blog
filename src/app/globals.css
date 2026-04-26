@@ -135,6 +135,7 @@ pre {
 }
 
 .post-content {
+  font-size: 1.1rem;
   flex: 1;
   max-width: 100%;
 }
