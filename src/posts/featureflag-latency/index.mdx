@@ -83,7 +83,7 @@ S3Exporter.Export()
 
 ---
 
-## 문제 1: p99 레이턴시 — mutex를 잡고 잠드는 Jitter
+## 문제 1: p99 레이턴시 — mutex 물고 sleep 하는 Jitter
 
 flush 자체가 느린지, 다른 요인으로 느려지는 것인지 확인할 필요가 있었다.
 디버깅 로그를 추가하여 실제 트래픽을 분석한 결과는 아래와 같다.
@@ -121,18 +121,7 @@ func (f *S3Exporter) applyJitter(ctx context.Context) error {
 
 ![s3-jitter.png](s3-jitter.png)
 
-```go
-func (f *S3Exporter) Export(...) error {
-    // temporarily disable jitter to investigate p99 latency causes
-    //if err := f.applyJitter(ctx); err != nil {
-    //    return err
-    //}
-    // ...
-}
-```
-
-jitter 제거 후 s3 thundering herd 문제는 export 주기를 늘리는 식으로 대응할 수 있었다.
-기존에는 매 1분마다 export 가 발생했기 때문에 여러 파드에서 동시 export 되는 확률이 높았지만, 이 주기를 3분으로 늘리면서 동시 export 확률을 분산하여 해결할 수 있었다.
+jitter 제거 후 s3 thundering herd 이슈는 export 주기를 늘리는 식으로 완화할 수 있었다. 기존에는 매 1분마다 export가 발생하여 여러 파드가 동시에 flush할 빈도가 높았지만, 이 주기를 3분으로 늘리면서 동시 flush 빈도를 줄여 S3 throttling 에러를 안정적으로 운영할 수 있었다. (완전히 제거할 수는 없었지만 그 빈도는 거의 없는 수준으로 줄었다.)
 
 <!--| 시기 | 일 최대 레이턴시 | 비고 |-->
 <!--|------|-----------------|------|-->
@@ -145,30 +134,19 @@ jitter 제거 후 s3 thundering herd 문제는 export 주기를 늘리는 식으
 
 ## 문제 2: max 레이턴시 — 동기 flush가 API를 멈추다
 
-Jitter를 비활성화하고 export 주기를 조절하여 p99 spike 이슈는 해결했지만 또 다른 문제가 있었다. S3 업로드 자체가 60-70ms 걸리는데, flush 중에는 이 시간 동안 mutex가 잠겨 있으므로 모든 요청이 60-70ms만큼 대기하게 된다. p99에 큰 영향을 줄 수준은 아니었지만, flush가 발생할 때마다 모든 API 요청이 일제히 멈추는 것은 여전히 바람직하지 않았다.
+Jitter를 비활성화하고 export 주기를 조절하여 p99 spike 이슈는 해결했지만 max latency 또 다른 문제가 있었다. S3 업로드 자체가 60-70ms 걸리는데, flush 중에는 이 시간 동안 mutex가 잠겨 있으므로 모든 요청이 60-70ms만큼 대기하게 된다. p99.9 까지 latency 는 거의 발생하지 않게 됐지만 max latency 는 간헐적으로 튀는 부분이 보였고, flush가 발생할 때마다 모든 API 요청이 일제히 멈추는 것은 여전히 바람직하지 않았다.
 
-### FlushInterval 조정
-
-우선 flush 빈도를 줄이기 위해 FlushInterval을 60초에서 3분으로 늘렸다. S3 업로드 자체가 60-70ms 수준이므로 큰 문제는 아니었지만 블로킹 빈도가 줄어드는 것만으로도 tail latency를 안정화시키는 데 도움이 되었다.
-
-```go
-return ffclient.DataExporter{
-    FlushInterval: 3 * time.Minute,  // 60초 → 3분
-    Exporter: &exporter.S3Exporter{
-        // ...
-    },
-}
-```
+<br/>
 
 ### AsyncExporter 래퍼 — 비동기 전환
 
-가장 근본적인 서비스 측 개선은 Export 과정을 비동기로 전환한 것이었다. 기존에는 flush가 트리거되면 S3 업로드가 완료될 때까지 mutex를 잡고 기다렸는데, AsyncExporter 래퍼를 도입하여 이벤트 데이터를 복사한 뒤 즉시 mutex를 해제하고 S3 업로드는 별도 goroutine에서 처리하도록 변경했다. 이렇게 하면 flush가 발생하더라도 다른 요청의 AddEvent()가 블로킹되는 시간이 이벤트 복사에 소요되는 마이크로초 수준으로 줄어든다.
+결국 근본적인 개선은 Export 과정을 비동기로 전환하는 것이었다. 기존에는 flush 트리거 시 S3 업로드가 완료될 때까지 mutex를 잡고 기다렸지만, AsyncExporter wrapper를 도입하여 버퍼에 쌓인 이벤트를 로컬 변수로 복사한 뒤 즉시 mutex를 해제하고 S3 업로드는 별도 goroutine에서 처리하도록 변경했다. flush가 발생하더라도 다른 요청의 AddEvent()가 블로킹되는 시간이 이벤트 복사에 소요되는 마이크로초 수준으로 줄어든다.
 
 ![async-exporter.png](async-exporter.png)
 
 ### 오픈소스 기여 — mutex hold time 줄이기
 
-서비스 측 개선과 별개로 근본 원인이 go-feature-flag 라이브러리 자체에도 있다는 점이 계속 걸렸다. 라이브러리 내부의 `DataExporter` 스케줄러가 flush 시 mutex를 잡은 채로 Export까지 동기 실행하는 구조 자체가 문제였기 때문이다. 내부 코드를 들여다보니 flush 함수에서 cache를 읽고 Export를 호출하고 다시 cache를 비우는 전체 과정이 하나의 mutex lock 안에서 이루어지고 있었고, 이 구간에서 네트워크 I/O가 발생하니 mutex hold time이 불필요하게 길어지는 것이었다.
+서비스 측 개선과 별개로 근본 원인이 go-feature-flag 라이브러리 자체에도 있다는 점이 계속 걸렸다. 라이브러리 내부의 `DataExporter` 스케줄러가 flush 시 mutex를 잡은 채로 Export까지 동기 실행하는 구조 때문인데, 내부 코드의 flush 함수에서 cache를 읽고 Export를 호출하고 다시 cache를 비우는 전체 과정이 하나의 mutex lock 안에서 이루어지고 있었고, 이 구간에서 네트워크 I/O가 발생하니 mutex hold time이 불필요하게 길어지는 이슈가 발생한 것이었다.
 
 ``` go
 // 기존 코드 — ProcessPendingEvents
@@ -199,15 +177,15 @@ func (e *eventStoreImpl[T]) ProcessPendingEvents(...) error {
 }
 ```
 
-이 문제를 해결하기 위해 [go-feature-flag에 PR](https://github.com/thomaspoignant/go-feature-flag/commit/a510291e4c967dce4705d2e2a6ffb3cb80b27900)을 제출했다. 핵심 변경은 mutex hold time을 최소화하는 것으로, cache 데이터를 로컬 변수로 복사한 뒤 즉시 mutex를 해제하고 실제 Export는 mutex 밖에서 실행하도록 수정했다. 이렇게 하면 Export 과정에서 네트워크 I/O가 아무리 오래 걸리더라도 다른 goroutine의 AddEvent() 호출이 블로킹되지 않는다.
+위 문제를 해결하기 위해 [PR](https://github.com/thomaspoignant/go-feature-flag/commit/a510291e4c967dce4705d2e2a6ffb3cb80b27900)을 제출했다. 핵심 변경은 mutex hold time을 최소화하는 것으로 cache 데이터를 로컬 변수로 복사한 뒤 즉시 mutex를 해제하고 실제 Export는 mutex 밖에서 실행하도록 수정했다. 이렇게 하면 Export 과정에서 네트워크 I/O가 아무리 오래 걸리더라도 다른 goroutine의 AddEvent() 호출이 블로킹되지 않는다.
 
-이 변경이 라이브러리에 반영되면 Jitter가 활성화된 상태에서도 mutex와 sleep이 분리되어 있으므로 thundering herd 방지라는 원래 목적을 달성하면서도 API 레이턴시에는 영향을 주지 않게 된다.
+이 PR은 최종적으로 머지되었다. 이제 Jitter를 다시 활성화하더라도 sleep이 mutex 밖에서 실행되므로 thundering herd를 방지하면서 API 레이턴시에 영향을 주지 않는다.
 
 ---
 
 ## 마무리
 
-이번 개선 과정을 돌이켜보면 두 문제 모두 결국 같은 원칙으로 귀결되었다. **공유 자원을 잠근 채 I/O를 수행하지 마라.** 문제 1에서는 mutex를 잡고 최대 7초간 sleep하는 Jitter가, 문제 2에서는 mutex를 잡고 60-70ms간 S3 업로드를 수행하는 동기 flush가 원인이었다. 규모만 달랐을 뿐 패턴은 동일했다. 처음에 비유했던 공용 문의 잠금장치로 돌아가면, 문제 1은 문을 잠그고 낮잠을 잔 것이고 문제 2는 문을 잠그고 택배를 보내러 간 것이다. 해결책 역시 단순했다. 문을 잠그는 시간을 최소화하고, 낮잠이든 택배든 문 밖에서 처리하는 것이다.
+이번 개선 과정을 돌이켜보면 두 문제 모두 결국 **공유 자원을 잠근 채 I/O를 수행** 이라는 동일한 원인으로 귀결되었다.  문제 1에서는 mutex를 잡고 최대 7초간 sleep하는 Jitter가, 문제 2에서는 mutex를 잡고 S3 업로드를 수행하는 동기 flush가 원인이었다. 규모만 달랐을 뿐 패턴은 동일했고 해결책도 (돌이켜보면) 단순했다.
 
 p99 같은 tail latency 문제를 조사할 때 기억해둘 만한 점도 있었다. 평균이나 p95로는 보이지 않는 문제가 p99에서 드러나는 경우, 원인은 대부분 "가끔 발생하는 특수 경로"에 있다. 타이머 기반 flush, 버퍼 임계치 도달, 조건부 retry 같은 경로는 평소에는 실행되지 않다가 특정 조건에서만 트리거되므로 평균 지표로는 포착하기 어렵다. Datadog의 flame graph와 레이턴시 추이 그래프를 교차 분석하는 것이 이런 유형의 문제를 찾아내는 데 효과적이었다.
 
