@@ -1,0 +1,137 @@
+---
+title: '모놀리식 서버에서 Prometheus 메트릭이 수집되지 않는 문제'
+desc: '메트릭은 찍히는데 Grafana에는 왜 안 보일까?'
+date: 2026-05-02
+thumbnail: /team-member-1.jpeg
+ogImage: /b-tree-2.png
+category: 'infra'
+open: true
+---
+
+## 1. 메트릭이 사라졌다
+
+`bs_postback_trigger_consume_count`와 `bs_playhub_messages_consumed_total`, 이 두 메트릭이 Grafana에서 보이지 않는다는 걸 발견했을 때 처음에는 앱 코드에 문제가 있다고 생각했다. 메트릭 등록 코드가 빠졌거나, 계측 지점이 잘못 잡혀 있거나, 라이브러리 호환 문제일 수도 있겠다 싶었는데 로컬에서 `curl localhost:8081/monitor/metrics`를 실행해보니 메트릭이 정상적으로 출력되고 있었다. 앱은 분명히 메트릭을 생성하고 있는데 Grafana/Thanos에서는 조회가 되지 않는 상황이었고, 이 순간 문제의 범위가 "앱 코드"에서 "수집 경로"로 좁혀졌다.
+
+처음에 떠오른 이미지는 식당이었다. 주방에서 요리는 완성됐는데, 서빙 창구가 벽으로 막혀 있어서 웨이터가 음식을 가져갈 수 없는 상황. 결론부터 말하면 이번 문제의 원인이 정확히 그것이었다.
+
+---
+
+## 2. Prometheus 메트릭 수집 구조
+
+문제를 이해하려면 Kubernetes 환경에서 Prometheus가 메트릭을 수집하는 전체 흐름을 먼저 짚어야 한다. 쿠버네티스에 익숙하지 않은 독자도 있을 테니 각 구성 요소의 역할부터 정리하겠다.
+
+``` bash
+Pod (앱)        →   Service          →   ServiceMonitor    →   Prometheus   →   Thanos/Grafana
+:8081/metrics       port: http           portName: http         scrape            query
+```
+
+| 구성 요소 | 역할 | 식당 비유 |
+|-----------|------|-----------|
+| Pod | 앱이 실행되는 단위. 메트릭 endpoint를 노출한다 | 주방 — 요리를 만드는 곳 |
+| Service | Pod의 포트를 클러스터 내부에 노출하는 네트워크 리소스 | 서빙 창구 — 주방과 홀을 연결하는 통로 |
+| ServiceMonitor | Prometheus에게 "이 Service의 이 포트를 scrape하라"고 알려주는 설정 | 주문서 — 어느 창구에서 음식을 가져올지 지시 |
+| Prometheus | ServiceMonitor 설정을 보고 HTTP 요청을 보내 메트릭을 수집 | 웨이터 — 주문서대로 창구에서 음식을 가져옴 |
+| Thanos/Grafana | 수집된 시계열 데이터를 장기 저장하고 시각화 | 손님 — 음식을 받아 먹는 최종 소비자 |
+
+이 흐름에서 어느 한 단계라도 끊기면 메트릭은 최종 소비자에게 도달하지 못한다. 주방에서 아무리 훌륭한 요리를 만들어도 서빙 창구가 열려 있지 않으면 웨이터는 음식을 가져갈 수 없고, 손님은 빈 접시만 바라보게 된다.
+
+---
+
+## 3. 트러블슈팅 — 문제 범위 좁히기
+
+처음에는 앱 코드부터 확인했다. 메트릭 등록 코드를 살펴보고 핸들러 경로를 확인한 뒤 로컬에서 직접 endpoint를 호출했는데, `curl localhost:8081/monitor/metrics`가 정상 응답을 반환하는 순간 앱 코드에는 문제가 없다는 결론에 도달했다. 여기까지가 "주방에서 요리가 잘 나오는가"를 확인하는 단계였다.
+
+다음 질문은 "Prometheus가 이 Pod를 실제로 scrape하고 있는가"였다. charts 디렉토리를 확인해보니 `buzzvil-prometheus`는 ServiceMonitor 기반으로 수집 대상을 결정하고 있었고, ServiceMonitor는 Service에서 `portName: http`를 찾아 scrape target을 구성하는 구조였다. 그런데 `postbacktrigger-consumer`의 배포 설정을 열어보니 **`ports` 항목이 비어 있었다**.
+
+ports가 비어 있다는 건 컨테이너가 8081 포트에서 HTTP 서버를 띄우고 있지만, 쿠버네티스 Service가 그 포트의 존재를 모른다는 뜻이다. Service가 없으니 ServiceMonitor가 붙을 대상도 없고, Prometheus가 scrape할 endpoint도 만들어지지 않는다. 주방은 열심히 요리를 내놓고 있는데 서빙 창구 자체가 벽으로 막혀 있었던 것이다.
+
+---
+
+## 4. 해결 — 서빙 창구 열기
+
+해결은 두 단계로 진행했다. 먼저 앱 코드에서 메트릭 서버의 기반이 되는 goroutine을 정리했다. 기존 코드는 `context.Background()`를 사용하고 있었고 `http.ListenAndServe`의 에러도 무시하고 있었는데, 이렇게 되면 메트릭 서버가 조용히 죽어버려도 아무도 알 수 없는 상태가 된다. 직접적인 수집 문제와는 무관하지만, 이번 기회에 함께 개선했다.
+
+```go
+// cmd/buzzscreenapi-cmd/main.go
+
+// 변경 전: context.Background() 사용, 에러 무시
+go func() {
+    http.ListenAndServe("0.0.0.0:8081", nil)
+}()
+
+// 변경 후: 기존 ctx 사용, 에러 로깅, recover 적용
+go func() {
+    defer common.Recover(ctx)
+    log.From(ctx).Info("starting pprof/metrics server on :8081")
+    if err := http.ListenAndServe("0.0.0.0:8081", nil); err != nil {
+        log.From(ctx).Error("pprof/metrics server failed", "error", err)
+    }
+}()
+```
+
+`context.Background()` 대신 이미 사용 중이던 `ctx`를 넘기도록 변경하고, `defer common.Recover(ctx)`를 적용해 panic 상황에서도 안전하게 동작하도록 수정했으며, `http.ListenAndServe`의 에러를 받아 로깅하도록 개선했다. 이 세 가지 변경만으로 메트릭 서버가 죽었을 때 원인을 추적할 수 있는 기반이 마련된다.
+
+<br />
+
+핵심 변경은 배포 설정에 있었다. `release/prod/values.postbacktrigger-consumer.yaml`에 다음을 추가했다.
+
+```yaml
+ports:
+  - name: http
+    port: 8081
+    protocol: TCP
+```
+
+이 세 줄이 전부다. 이 설정이 추가되면 차트가 컨테이너 포트와 Service 포트를 함께 생성하고, ServiceMonitor가 `portName: http`로 해당 Service를 찾을 수 있게 된다. 구체적으로는 아래 네 가지가 자동으로 연결된다.
+
+- 컨테이너 포트 이름: `http`
+- Service 포트 이름: `http`
+- Service targetPort: 자동으로 `http`
+- ServiceMonitor.portName: `http`와 맞물림
+
+막혀 있던 서빙 창구가 열리면서 웨이터(Prometheus)가 주방(Pod)에서 요리(메트릭)를 가져올 수 있게 된 것이다.
+
+---
+
+## 5. ports name은 http인데 protocol은 TCP인 이유
+
+배포 설정을 처음 봤을 때 한 가지 의문이 들었다. 포트 이름은 `http`인데 프로토콜은 `TCP`라고 되어 있으니, HTTP 프로토콜로 설정해야 하는 것 아닌가 싶었다. 이 의문을 해소하려면 쿠버네티스 Service가 네트워크 스택에서 어느 레이어에 위치하는지를 이해해야 하는데, 결론부터 말하면 쿠버네티스 Service는 L4(전송 계층) 리소스다.
+
+Service의 책임 범위는 명확하다. 어떤 Pod로 트래픽을 보낼지, 어떤 포트로 보낼지, TCP/UDP/SCTP 중 무엇을 쓸지까지가 Service의 영역이며, 그 위에서 흐르는 것이 HTTP인지 gRPC인지 Prometheus scrape인지는 관여하지 않는다.
+
+| 필드 | 역할 | 설명 |
+|------|------|------|
+| `name: http` | 식별자 | ServiceMonitor 같은 다른 리소스가 이 포트를 참조하기 위한 이름 |
+| `port: 8081` | 포트 번호 | Service가 노출하는 포트 |
+| `protocol: TCP` | 전송 프로토콜 | L4에서 사용하는 전송 방식 |
+
+`protocol: TCP`라고 해서 HTTP가 아닌 것이 아니다. HTTP는 TCP 위에서 동작하는 애플리케이션 계층 프로토콜이므로, Service 입장에서는 "이건 TCP 포트"라고만 알면 충분하다. `name: http`는 ServiceMonitor가 이 포트를 찾기 위한 별칭일 뿐이며, 실제로 Prometheus는 이 TCP 포트 위에서 HTTP GET 요청을 보내 `/monitor/metrics`를 수집한다. 식당 비유로 돌아가면 서빙 창구의 재질이 나무든 스테인리스든(TCP/UDP) 상관없이, 창구가 열려 있기만 하면 웨이터는 음식을 가져갈 수 있는 것과 같은 이치다.
+
+전체 흐름을 다시 정리하면 이렇다.
+
+``` bash
+1. Pod 내 앱 → 0.0.0.0:8081에서 /monitor/metrics를 HTTP로 노출
+2. Service  → port: 8081, name: http, protocol: TCP로 Pod 포트에 연결
+3. ServiceMonitor → portName: http, path: /monitor/metrics로 scrape 대상 지정
+4. Prometheus → Service endpoint에 HTTP GET 요청으로 메트릭 수집
+5. Thanos/Grafana → Prometheus가 수집한 시계열 데이터를 조회하여 시각화
+```
+
+---
+
+## 6. 교훈
+
+이번 트러블슈팅에서 가장 큰 교훈은 "메트릭이 안 찍힌다"와 "메트릭은 찍히는데 수집이 안 된다"를 초기에 분리했어야 한다는 점이다. 처음에 앱 코드부터 파고들었지만, `curl`로 로컬 endpoint를 확인한 순간 시선을 인프라 쪽으로 돌렸어야 했다. 경험상 메트릭 미수집 문제는 앱 코드보다 수집 경로 설정에서 발생하는 경우가 더 많았는데, 이번에도 역시 그러했다.
+
+모놀리식 서버처럼 메트릭 endpoint가 하나뿐인 구조에서는 주방에서 요리가 잘 나오는지(앱 메트릭 생성)와 서빙 창구가 제대로 열려 있는지(Service/ServiceMonitor 설정)를 분리해서 확인하는 습관이 중요하다. 앞으로 비슷한 문제를 만났을 때 빠르게 원인을 좁힐 수 있도록 체크리스트를 남긴다.
+
+1. `curl localhost:{port}/metrics` — 앱이 메트릭을 생성하고 있는가?
+2. `kubectl get svc` — 해당 Pod에 연결된 Service가 존재하는가?
+3. `kubectl get servicemonitor` — ServiceMonitor가 올바른 portName으로 설정되어 있는가?
+4. Prometheus Targets UI — 해당 endpoint가 scrape target 목록에 나타나는가?
+5. 위 단계를 모두 통과했는데도 Grafana에서 안 보인다면 Thanos 쿼리 범위나 레이블 필터를 확인한다.
+
+### Reference
+
+- [Kubernetes Service](https://kubernetes.io/docs/concepts/services-networking/service/)
+- [Prometheus ServiceMonitor](https://prometheus-operator.dev/docs/api-reference/api/#monitoring.coreos.com/v1.ServiceMonitor)
