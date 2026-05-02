@@ -11,6 +11,8 @@ import remarkGfm from 'remark-gfm';
 import rehypeRaw from 'rehype-raw';
 import React from 'react';
 import { useTheme } from 'next-themes';
+import Zoom from 'react-medium-image-zoom';
+import 'react-medium-image-zoom/dist/styles.css';
 import './markdown-styles.css';
 
 const getHeadingText = (node: any) => {
@@ -220,19 +222,26 @@ const PostMarkdown = ({ params, containerStyles }: Props) => {
                     width: '100%',
                   }}
                 >
-                  <Image
-                    src={imagePath}
-                    alt={alt || 'Post image'}
-                    unoptimized={true}
-                    width={0}
-                    height={0}
-                    style={{
-                      width: '80%',
-                      height: 'auto',
-                      borderRadius: '0.3em',
-                      boxShadow: '0 4px 6px rgba(0, 0, 0, 0.1)',
-                    }}
-                  />
+                  <Zoom
+                    wrapElement="span"
+                    {...({
+                      wrapStyle: { display: 'inline-block', width: '80%' },
+                    } as any)}
+                  >
+                    <Image
+                      src={imagePath}
+                      alt={alt || 'Post image'}
+                      unoptimized={true}
+                      width={0}
+                      height={0}
+                      style={{
+                        width: '100%',
+                        height: 'auto',
+                        borderRadius: '0.3em',
+                        boxShadow: '0 4px 6px rgba(0, 0, 0, 0.1)',
+                      }}
+                    />
+                  </Zoom>
                 </span>
               );
             },

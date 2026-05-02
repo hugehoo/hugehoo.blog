@@ -182,6 +182,15 @@
   letter-spacing: 0.08em;
 }
 
+/* ── 이미지 Lightbox 오버레이 ── */
+[data-rmiz-modal-overlay="visible"] {
+  background-color: rgba(255, 255, 255, 0.95);
+}
+
+.dark [data-rmiz-modal-overlay="visible"] {
+  background-color: rgba(0, 0, 0, 0.9);
+}
+
 /* SyntaxHighlighter 내부 스타일 보정 */
 .code-block-wrapper > pre,
 .code-block-wrapper > div > pre {
