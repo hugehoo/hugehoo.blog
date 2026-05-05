@@ -236,16 +236,23 @@ func (e *eventStoreImpl[T]) ProcessPendingEvents(...) error {
 
 ## 마무리
 
-개선 과정을 돌이켜보면 두 문제 모두 **mutex를 걸고 I/O를 수행** 했다는 동일 원인으로 귀결되었습니다. 문제 1에서는 mutex를 잡고 최대 7초간 sleep하는 Jitter가, 문제 2에서는 mutex를 잡고 S3 업로드를 수행하는 동기 flush가 원인이었습니다. 규모만 달랐을 뿐 패턴은 동일했고 돌이켜보면 해결책도 단순했습니다.
+개선 과정을 정리해보면 두 문제 모두 **mutex를 걸고 I/O를 수행** 했다는 동일 원인으로 귀결되었습니다.
+처음에는 S3 throttling이나 네트워크 지연이 원인일 것이라 추측했지만 실제로는 lock scope 안에 포함된 slow I/O가 문제였습니다.
+문제 1에서는 mutex를 물고 최대 7초간 sleep하는 Jitter, 문제 2에서는 mutex를 잡고 S3 업로드를 수행하는 동기 flush가 원인으로 규모만 달랐을 뿐 패턴은 동일했고 결국 **lock scope를 최소화한다**는 하나의 원칙으로 두 문제 모두 해결할 수 있었습니다.
+
+운영 중 만난 레이턴시 문제를 파고들다 라이브러리의 근본 원인까지 수정하게 되었고 결과적으로 오픈소스 기여로까지 연결할 수 있었습니다.
+서비스 코드뿐 아니라 의존하고 있는 라이브러리까지 딥다이브하며 문제 해결 폭을 더 넓힐 수 있었습니다.
+
+<br/>
+
+<i>📌200ms 내외로 안정화 된 max latency</i>
+![final.png](./final.png)
 
 | 단계 | 조치 | 개선 결과 |
 |------|------|-----------|
-| 문제 1 | Jitter 비활성화 + export 주기 조절 | max 55초 → ~200ms |
+| 문제 1 | Jitter 비활성화 + export 주기 조절 | max 7초 → ~200ms |
 | 문제 2 | AsyncExporter 래퍼 도입 | max 25초 → ~200ms 이내 |
 
-![final.png](./final.png)
-
-<br/>
 
 ### Reference
 

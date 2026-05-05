@@ -89,7 +89,7 @@
 
 /* ── strong 하이라이트 ── */
 .md-strong {
-  background: linear-gradient(to top, #fff3b9 50%, transparent 60%);
+  background: linear-gradient(to top, #fff3b9 10%, transparent 60%);
 }
 
 .dark .md-strong {
@@ -183,11 +183,11 @@
 }
 
 /* ── 이미지 Lightbox 오버레이 ── */
-[data-rmiz-modal-overlay="visible"] {
+[data-rmiz-modal-overlay='visible'] {
   background-color: rgba(255, 255, 255, 0.95);
 }
 
-.dark [data-rmiz-modal-overlay="visible"] {
+.dark [data-rmiz-modal-overlay='visible'] {
   background-color: rgba(0, 0, 0, 0.9);
 }
 

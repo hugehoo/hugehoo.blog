@@ -123,7 +123,7 @@ const PostMarkdown = ({ params, containerStyles }: Props) => {
                   style={{
                     fontSize: '1.5em',
                     fontWeight: '900',
-                    margin: '0.3em 0 0.5em 0',
+                    margin: '0.5em 0 0.5em 0',
                   }}
                   {...props}
                 />
@@ -190,7 +190,7 @@ const PostMarkdown = ({ params, containerStyles }: Props) => {
               <strong
                 className="md-strong"
                 style={{
-                  fontSize: '1em',
+                  fontSize: '0.95em',
                   fontWeight: '600',
                 }}
                 {...props}
@@ -199,7 +199,7 @@ const PostMarkdown = ({ params, containerStyles }: Props) => {
             p: ({ node, ...props }) => (
               <p
                 style={{
-                  fontSize: '1em',
+                  fontSize: '0.9em',
                   marginBottom: '0.5em',
                   lineHeight: '1.8em',
                 }}
