@@ -106,8 +106,8 @@ const PostMarkdown = ({ params, containerStyles }: Props) => {
                   id={generateIdFromText(headingText)}
                   className="md-heading"
                   style={{
-                    fontSize: '1.7em',
-                    fontWeight: '900',
+                    fontSize: '1.6em',
+                    fontWeight: '600',
                     margin: '1.5em 0 0.5em 0',
                   }}
                   {...props}
@@ -121,8 +121,8 @@ const PostMarkdown = ({ params, containerStyles }: Props) => {
                   id={generateIdFromText(headingText)}
                   className="md-heading"
                   style={{
-                    fontSize: '1.5em',
-                    fontWeight: '900',
+                    fontSize: '1.4em',
+                    fontWeight: '600',
                     margin: '0.5em 0 0.5em 0',
                   }}
                   {...props}
@@ -133,7 +133,7 @@ const PostMarkdown = ({ params, containerStyles }: Props) => {
               <h4
                 className="md-heading"
                 style={{
-                  fontSize: '1.3em',
+                  fontSize: '1.2em',
                   fontWeight: '600',
                   margin: '1em 0 0.5em 0',
                 }}
