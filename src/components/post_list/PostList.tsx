@@ -27,7 +27,7 @@ const PostList = ({ posts }: Props) => {
             <span className="inline-flex items-center rounded-full border border-blue-600 px-2.5 py-0.5 text-[12px] font-medium text-blue-600 transition-colors dark:border-blue-400 dark:text-blue-400">
               {post.category}
             </span>
-            <h2 className="mt-2 text-[22px] font-bold leading-snug text-gray-900 transition-colors group-hover:text-blue-600 dark:text-gray-50 dark:group-hover:text-blue-400 sm:text-[26px]">
+            <h2 className="mt-2 text-[18px] font-bold leading-snug text-gray-900 transition-colors group-hover:text-blue-600 dark:text-gray-50 dark:group-hover:text-blue-400 sm:text-[22px]">
               {post.title}
             </h2>
             {post.summary && (

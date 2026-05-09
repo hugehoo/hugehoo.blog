@@ -75,7 +75,7 @@ const PostMarkdown = ({ params, containerStyles }: Props) => {
             {category}
           </div>
         )}
-        <h1 className="text-[28px] font-bold leading-[1.25] tracking-tight text-gray-900 dark:text-gray-50 sm:text-[36px]">
+        <h1 className="text-[24px] font-bold leading-[1.25] tracking-tight text-gray-900 dark:text-gray-50 sm:text-[28px]">
           {decodedTitle}
         </h1>
         <div className="mt-5 flex items-center gap-2 text-[13px] text-gray-500 dark:text-gray-500">
