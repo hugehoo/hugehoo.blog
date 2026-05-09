@@ -24,14 +24,16 @@ const getHeadingText = (node: any) => {
 interface Props {
   params: {
     decodedTitle: string;
+    category?: string;
     content: string;
     date: Date;
+    readingMinutes?: number;
   };
   containerStyles?: any;
 }
 
 const PostMarkdown = ({ params, containerStyles }: Props) => {
-  const { decodedTitle, content, date } = params;
+  const { decodedTitle, category, content, date, readingMinutes } = params;
   const { resolvedTheme } = useTheme();
   const generateIdFromText = (text: string) => {
     return text.replace(/\s+/g, '-').toLowerCase();
@@ -67,18 +69,31 @@ const PostMarkdown = ({ params, containerStyles }: Props) => {
   return (
     <>
       <title>{decodedTitle}</title>
-      <div className="post-meta mb-10">
-        <div className="text-3xl font-semibold">{decodedTitle}</div>
-        <div className="mt-3">
-          <span className="text-gray-500">
-            {date.toLocaleDateString('en-US', {
+      <header className="mb-12 border-b border-gray-100 pb-10 dark:border-gray-800">
+        {category && (
+          <div className="mb-3 text-[13px] font-medium uppercase tracking-wide text-blue-600 dark:text-blue-400">
+            {category}
+          </div>
+        )}
+        <h1 className="text-[24px] font-bold leading-[1.25] tracking-tight text-gray-900 dark:text-gray-50 sm:text-[28px]">
+          {decodedTitle}
+        </h1>
+        <div className="mt-5 flex items-center gap-2 text-[13px] text-gray-500 dark:text-gray-500">
+          <span>
+            {date.toLocaleDateString('ko-KR', {
               year: 'numeric',
-              month: 'short',
-              day: '2-digit',
+              month: 'long',
+              day: 'numeric',
             })}
           </span>
+          {readingMinutes ? (
+            <>
+              <span aria-hidden="true">·</span>
+              <span>{readingMinutes}분 읽기</span>
+            </>
+          ) : null}
         </div>
-      </div>
+      </header>
 
       <article className="post-content">
         <ReactMarkdown
@@ -106,9 +121,10 @@ const PostMarkdown = ({ params, containerStyles }: Props) => {
                   id={generateIdFromText(headingText)}
                   className="md-heading"
                   style={{
-                    fontSize: '1.6em',
-                    fontWeight: '600',
-                    margin: '1.5em 0 0.5em 0',
+                    fontSize: '1.5rem',
+                    fontWeight: '700',
+                    margin: '2.25em 0 0.75em 0',
+                    letterSpacing: '-0.01em',
                   }}
                   {...props}
                 />
@@ -121,9 +137,10 @@ const PostMarkdown = ({ params, containerStyles }: Props) => {
                   id={generateIdFromText(headingText)}
                   className="md-heading"
                   style={{
-                    fontSize: '1.4em',
-                    fontWeight: '600',
-                    margin: '0.5em 0 0.5em 0',
+                    fontSize: '1.2rem',
+                    fontWeight: '700',
+                    margin: '1.75em 0 0.5em 0',
+                    letterSpacing: '-0.01em',
                   }}
                   {...props}
                 />
@@ -171,8 +188,9 @@ const PostMarkdown = ({ params, containerStyles }: Props) => {
               <li
                 style={{
                   marginLeft: '0.5em',
-                  fontSize: '0.95em',
-                  lineHeight: '1.9em',
+                  fontSize: '1rem',
+                  lineHeight: '1.8',
+                  marginBottom: '0.4em',
                 }}
                 {...props}
               />
@@ -189,19 +207,16 @@ const PostMarkdown = ({ params, containerStyles }: Props) => {
             strong: ({ node, ...props }) => (
               <strong
                 className="md-strong"
-                style={{
-                  fontSize: '0.95em',
-                  fontWeight: '600',
-                }}
+                style={{ fontWeight: '600' }}
                 {...props}
               />
             ),
             p: ({ node, ...props }) => (
               <p
                 style={{
-                  fontSize: '0.9em',
-                  marginBottom: '0.5em',
-                  lineHeight: '1.8em',
+                  fontSize: '1rem',
+                  marginBottom: '1.25em',
+                  lineHeight: '1.8',
                 }}
                 {...props}
               />

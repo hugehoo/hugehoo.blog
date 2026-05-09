@@ -1,11 +1,12 @@
-import MainBlog from "@/components/ui/MainBlog";
+import MainBlog from '@/components/ui/MainBlog';
 
-const Blog = async () => {
-  return (
-    <>
-      <MainBlog/>
-    </>
-  )
+interface Props {
+  searchParams: { page?: string };
 }
+
+const Blog = ({ searchParams }: Props) => {
+  const page = Number(searchParams.page) || 1;
+  return <MainBlog page={page} basePath="/blog" />;
+};
 
 export default Blog;

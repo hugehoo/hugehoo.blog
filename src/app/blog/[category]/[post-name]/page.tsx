@@ -3,6 +3,7 @@ import path from 'path';
 import { sync } from 'glob';
 import fs from 'fs';
 import matter from 'gray-matter';
+import readingTime from 'reading-time';
 import PostMarkdown from '@/app/blog/[category]/[post-name]/postMarkdown';
 import TOC from '@/app/blog/toc';
 
@@ -69,9 +70,11 @@ const findPostByTitle = (title: string): Post => {
 const Post = ({ params }: Props) => {
   const { category, 'post-name': encodedTitle } = params;
   const decodedTitle = decodeURIComponent(encodedTitle);
+  const decodedCategory = decodeURIComponent(category);
 
   const post = findPostByTitle(decodedTitle);
   const postDate = post?.data?.date ? new Date(post.data.date) : new Date();
+  const readingMinutes = Math.max(1, Math.ceil(readingTime(post.content).minutes));
 
   return (
     <div className="blog-page-wrapper">
@@ -80,8 +83,10 @@ const Post = ({ params }: Props) => {
           <PostMarkdown
             params={{
               decodedTitle,
+              category: decodedCategory,
               content: post.content,
               date: postDate,
+              readingMinutes,
             }}
           />
         </div>
