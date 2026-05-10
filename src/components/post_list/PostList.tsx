@@ -44,16 +44,16 @@ const PostList = ({ posts }: Props) => {
                 })}
               </div>
             </div>
-            <div className="relative aspect-[16/10] w-[140px] shrink-0 overflow-hidden rounded-lg bg-gray-100 dark:bg-gray-800 sm:w-[200px]">
-              {post.thumbnail && (
-                // eslint-disable-next-line @next/next/no-img-element
+            {post.thumbnail && (
+              <div className="relative aspect-[16/10] w-[140px] shrink-0 overflow-hidden rounded-lg bg-gray-100 dark:bg-gray-800 sm:w-[200px]">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img
                   src={post.thumbnail}
                   alt={post.title}
                   className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
                 />
-              )}
-            </div>
+              </div>
+            )}
           </Link>
         </li>
       ))}
