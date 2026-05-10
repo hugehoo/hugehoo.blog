@@ -84,7 +84,7 @@ User input: $ARGUMENTS
 title: '{제목}'
 desc: '{호기심 유발 문장 — 단순 설명이 아님}'
 date: '{YYYY-MM-DD}'
-thumbnail: /team-member-1.jpeg
+thumbnail: 
 ogImage: /b-tree-2.png
 category: '{카테고리}'
 open: true

@@ -2,7 +2,7 @@
 title: "Docker 컨테이너가 sigterm signal을 못받은 이유"
 date: 2025-01-26
 desc: 복합적인 이유가 있을겁니다..
-thumbnail: /team-member-1.jpeg
+thumbnail: 
 category: docker
 open: true
 ---
@@ -142,4 +142,3 @@ services:
   - `PID 1의 역할`: 컨테이너 내에서 애플리케이션이 PID 1로 실행되어야 신호를 제대로 받아 처리할 수 있습니다.
 
   - `도커 컴포즈 설정`: exec 명령어를 사용하여 애플리케이션을 PID 1로 실행해야 하는 점을 배웠습니다. 컨테이너 운영에 있어 중요한 팁이라 생각합니다.
-
