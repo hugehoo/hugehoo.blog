@@ -69,14 +69,16 @@ var idleTimeout = 10 * time.Minute
 
 ## 3. grpc-go 이슈: move to test only package
 
-gRPC-Go의 `internal/balancergroup/` 패키지에는 16개의 테스트가 있었다. 이 테스트들은 모두 `package balancergroup`(화이트 박스)으로 선언되어 있었지만, 실제로 비공개 심볼을 하나도 사용하지 않고 있었다. 공개 API만으로 충분히 검증 가능한 테스트들이 화이트 박스 패키지에 묶여 있던 셈이다.
+`internal/balancergroup/`의 16개 테스트는 모두 `package balancergroup`(화이트 박스)으로 선언되어 있었지만, 실제로 비공개 심볼을 하나도 사용하지 않고 있었다.
+공개 API만으로 충분히 검증 가능한 테스트들이 화이트 박스 패키지에 묶여 있던 셈이다.
 [GitHub Issue #8996](https://github.com/grpc/grpc-go/issues/8996)에 이 16개의 테스트를 `package balancergroup_test`(블랙 박스)로 마이그레이션하는 내용이 등록되었다.
+핵심은 테스트 로직을 다시 쓰는 것이 아니라 패키지 선언을 `balancergroup`에서 `balancergroup_test`로 바꾸고 그에 맞춰 타입과 함수를 `balancergroup.New`, `balancergroup.Options`처럼 패키지 한정자로 명시하는 것이다. 즉 테스트의 관심사는 유지한 채, 접근 가능한 범위만 좁힌 변경에 가깝다.
 
 <br/>
 
 ### 화이트 박스에서 가능한 위험한 코드
 
-화이트 박스 선언 상태에서는 이런 코드가 컴파일된다.
+화이트 박스에서는 이런 코드가 컴파일된다.
 
 ```go
 // package balancergroup — 내부 구현에 직접 접근
@@ -85,14 +87,16 @@ func TestCacheExpiry(t *testing.T) {
     bg.Add("b1", rrBuilder)
     bg.Remove("b1")
 
-    bg.cacheMu.Lock()
-    if _, ok := bg.balancerCache["b1"]; !ok {
+    bg.cacheMu.Lock() // <- 내부 구현에 접근
+    if _, ok := bg.balancerCache["b1"]; !ok { // <- 내부 구현에 접근
         t.Fatal("b1이 캐시에 없음")
     }
     bg.cacheMu.Unlock()
 }
 ```
-`bg.cacheMu`와 `bg.balancerCache`는 비공개 필드다. 테스트가 내부 캐시 구현에 직접 의존하고 있다. 왜 내부 구현에 직접 의존하면 안 될까? 내부 구현은 언제든 바뀔 수 있기 때문이다. 비공개 필드는 외부와의 계약이 아니라 개발자가 비교적 쉽게 수정할 수 있는 영역이다. 동작이 동일하더라도 내부 구조가 바뀌는 순간 테스트는 깨진다.
+`bg.cacheMu`와 `bg.balancerCache`는 비공개 필드다. 테스트가 내부 캐시 구현에 직접 의존하고 있다
+왜 내부 구현에 직접 의존하면 안 될까? 내부 구현은 언제든 바뀔 수 있기 때문이다. 비공개 필드는 외부와의 계약이 아니라 개발자가 비교적 쉽게 수정할 수 있는 영역이다.
+동작이 동일하더라도 내부 구조가 바뀌는 순간 테스트는 깨진다.
 
 <br/>
 
@@ -196,6 +200,7 @@ func (s) TestShutdown(t *testing.T) {
 즉 unexported 메서드 같은 상세한 구현을 테스트하는 것이 아니라 **관찰 가능한 동작(observable behavior)** 을 테스트해야 한다.
 
 `balancergroup`의 블랙 박스 테스트는 채널을 활용하여 외부에서 관찰 가능한 이벤트를 기다린다.
+이 코드가 실제로 검증하는 결과는 내부 캐시 구조 자체가 아닌, 새 `SubConn`이 기대한 수만큼 생성되고 최종적으로 만들어진 `Picker`가 round-robin 순서를 만족하는지다.
 
 ```go
 // package balancergroup_test
