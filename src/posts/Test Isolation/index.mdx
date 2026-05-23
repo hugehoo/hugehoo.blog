@@ -9,6 +9,8 @@ open: true
 ---
 
 <i>이 글의 모든 예시는 grpc-go 를 기준으로 설명합니다.</i>
+- [grpc-go Issue #8996](https://github.com/grpc/grpc-go/issues/8996)
+- [grpc-go PR #9094](https://github.com/grpc/grpc-go/pull/9094)
 
 ## 1. 화이트 박스 테스트와 블랙 박스 테스트
 
@@ -29,9 +31,25 @@ open: true
 
 ## 2. Go만의 테스트 패키지 규칙
 
+캡슐화를 우회해 내부를 검증하는 방식은 언어마다 다르다.
+
+| 언어 | 캡슐화 우회 방식 |
+|------|----------------|
+| Java | `package-private` 가시성 + Reflection |
+| Python | 컨벤션 (`_underscore`), 강제력 없음 |
+| Go | 같은 디렉토리 + `_test` 접미사 패키지 |
+
+Java는 리플렉션으로 비공개 필드에 접근하고, Python은 그저 관습적 컨벤션만 있을 뿐 접근을 강제로 막을 방법이 없다.
+Go는 별도의 런타임 우회 장치 대신 **컴파일러가 패키지 경계로 격리 여부를 결정한다.**
+
+### _test 접미사를 붙여 외부 패키지로 취급
+
 Go에서 테스트 파일의 패키지 선언은 두 가지 중 하나를 택한다.
 
 ```go
+// 1, 2 두 파일 모두 동일한 디렉토리(internal/balancergroup/)에 위치한다. 
+// /balancergroup, /balancergroup_test 처럼 별도의 테스트 디렉토리를 만들지 않는다.
+
 // 1. 화이트 박스 — 같은 패키지
 package balancergroup
 
@@ -39,16 +57,20 @@ package balancergroup
 package balancergroup_test
 ```
 
-두 파일 모두 동일한 디렉토리(`internal/balancergroup/`)에 위치한다. `/balancergroup`, `/balancergroup_test`처럼 별도의 테스트 디렉토리를 만들지 않는다.
-
-Go는 원래 같은 디렉토리의 모든 `.go` 파일이 같은 패키지명을 사용하지만 `_test.go` 파일에는 예외가 있다. 이 파일만 유일하게 원래 패키지명에 `_test`를 붙인 다른 이름을 선언할 수 있고, 이렇게 하면 컴파일러가 해당 파일을 외부 패키지로 취급한다. 접미사에 `_test`가 붙은 패키지를 외부 패키지로 취급하는 이유가 무엇일까? Go 컴파일러가 블랙 박스 테스트를 언어 수준에서 지원하기 때문이다. 같은 `internal/balancergroup/`에 있어도 서로 격리된 패키지로 취급되면 테스트 코드는 본래 코드의 unexported 필드나 심볼에 접근할 수 없다.
+Go는 원래 같은 디렉토리의 모든 `.go` 파일이 같은 패키지명을 사용하지만 `_test.go` 파일에는 예외가 있다. 이 파일만 유일하게 원래 패키지명에 `_test`를 붙인 다른 이름을 선언할 수 있고, 이렇게 하면 컴파일러가 해당 파일을 외부 패키지로 취급한다.
+접미사에 `_test`가 붙은 패키지를 외부 패키지로 취급하는 이유가 무엇일까? Go 컴파일러가 블랙 박스 테스트를 언어 수준에서 지원하기 때문이다.
+같은 `internal/balancergroup/` 디렉토리에 있어도 서로 격리된 패키지로 취급되면 테스트 코드는 본래 코드의 unexported 필드나 심볼에 접근할 수 없다.
 
 | 개념 | 패키지 선언 | 디렉토리 | 비공개 심볼 접근 |
 |------|------------|---------|----------------|
-| 화이트 박스 테스트 | `package balancergroup` | `internal/balancergroup/` | 가능 |
-| 블랙 박스 테스트 | `package balancergroup_test` | `internal/balancergroup/` | 컴파일러가 차단 |
+| 화이트 박스  | package balancergroup | internal/balancergroup/ | 가능 |
+| 블랙 박스  | package balancergroup_test | internal/balancergroup/ | 컴파일러가 차단 |
 
-정확히 말하면 Go에서는 `public/private`보다 `exported/unexported`라는 표현을 쓴다. 이 글에서는 편의상 공개/비공개라고 부르되, 기준은 Go의 대문자/소문자 규칙이다.
+> 정확히 말하면 Go에서는 `public/private`보다 `exported/unexported`라는 표현을 쓴다. 이 글에서는 편의상 공개/비공개라고 부르되, 기준은 Go의 대문자/소문자 규칙이다.
+
+
+
+**package balancergroup_test**로 선언된 테스트 파일에서는 `New`, `Options`, `Add` 같은 대문자 식별자만 사용할 수 있다. `handleResolverError`나 `subBalancerWrapper`에 접근하려 하면 컴파일 에러가 발생한다. 실제 오픈소스 프로젝트에서 이 규칙이 어떻게 적용되는지 살펴보자.
 
 ```go
 // 공개 — 외부 패키지에서 접근 가능
@@ -56,14 +78,13 @@ func New(opts Options) *BalancerGroup { ... }
 type Options struct { ... }
 func (bg *BalancerGroup) Add(id string, builder balancer.Builder) { ... }
 func (bg *BalancerGroup) Close() { ... }
-
+```
+```go
 // 비공개 — 패키지 내부에서만 접근 가능
 func (bg *BalancerGroup) handleResolverError(id string, err error) { ... }
 type subBalancerWrapper struct { ... }
 var idleTimeout = 10 * time.Minute
 ```
-
-`package balancergroup_test`로 선언된 테스트 파일에서는 `New`, `Options`, `Add` 같은 대문자 식별자만 사용할 수 있다. `handleResolverError`나 `subBalancerWrapper`에 접근하려 하면 컴파일 에러가 발생한다. 실제 오픈소스 프로젝트에서 이 규칙이 어떻게 적용되는지 살펴보자.
 
 ---
 
@@ -164,16 +185,16 @@ func (s) TestShutdown(t *testing.T) {
 
 ---
 
-## 4. 꼭 필요한 수정일까?
+### 이슈의 당위성
 
-처음 이슈를 보고 '굳이'라는 생각도 들었다. balancergroup의 16개 테스트는 모두 정상적으로 통과했고 비공개 심볼을 사용하는 코드도 없었다.
+[이슈](https://github.com/grpc/grpc-go/issues/8996)에 등록된 balancergroup의 16개 테스트는 모두 정상적으로 통과했고 비공개 심볼을 사용하는 코드도 없었다.
 왜 굳이 블랙 박스로 전환하자는 이슈가 등록됐을까?
 
 추측컨대 이 변경은 수정적 변경(corrective)이 아니라 **예방적 변경(preventive)** 이다.
 
-잠금장치가 없는 문을 떠올려 보자. 아무도 열지 않았다고 해서 잠겨 있는 게 아니다. 누군가 문을 열기 전에 잠금장치를 다는 것이 예방이다.
+잠금장치가 없는 문을 떠올려 보자. 아무도 열지 않았다고 해서 잠겨 있는 게 아니다. 누군가 문을 열기 전에 잠금장치를 다는 것이 예방이다. 이 잠금장치를 다는 것이 컴파일로 강제화 하는 셈이다.
 
-기존의 `package balancergroup` 선언은 비공개 필드에 접근할 수 있는 문을 열어둔 셈이다. 현재는 누구도 그 문을 사용하지 않지만 새 개발자가 테스트를 추가할 때 `bg.cacheMu.Lock()`처럼 내부 구현에 의존하는 코드를 작성할 수 있다. 코드는 컴파일되고 테스트 코드도 정상적으로 실행될 것이다.
+기존의 `package balancergroup` 선언은 비공개 필드에 접근할 수 있는 문을 열어둔 셈이다. 지금까지 작성된 테스트 코드는 그 문(비공개 필드)을 사용하지 않지만, 다른 개발자는 테스트를 추가할 때 `bg.cacheMu.Lock()`처럼 내부 구현에 의존하는 코드를 작성할 수 있다. 코드는 컴파일되고 테스트 코드도 정상적으로 실행될 것이다.
 
 6개월 후 누군가 캐시 구현을 `map`에서 `sync.Map`으로 리팩토링하면 어떻게 될까?
 
@@ -187,7 +208,7 @@ func (s) TestShutdown(t *testing.T) {
 
 ---
 
-## 5. 관찰 가능한 동작을 테스트하라
+## 4. 관찰 가능한 동작을 테스트하라
 
 블랙 박스 테스트는 공개 API만 사용하도록 강제한다. 블랙 박스 테스트의 장점은 무엇일까? 내부 구현이 변경되더라도 공개 API의 동작이 동일하면 테스트가 깨지지 않는다. 즉 리팩토링시 갑작스레 발목 잡는 일이 덜 발생한다.
 
@@ -231,7 +252,7 @@ if err := testutils.IsRoundRobin(want, testutils.SubConnFromPicker(p1)); err != 
 
 ---
 
-## 6. 마무리
+## 마무리
 
 테스트 격리성은 테스트가 내부 구현에 의존하지 않도록 경계를 긋는 것이다. Go는 패키지 선언만으로 그 경계를 컴파일러에게 위임할 수 있다.
 이번 컨트리뷰션을 통해 실제 현업에서도 적용할 수 있는 체크리스트 세 가지를 남긴다.

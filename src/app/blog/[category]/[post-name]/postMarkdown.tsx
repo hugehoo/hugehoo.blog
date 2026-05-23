@@ -215,7 +215,7 @@ const PostMarkdown = ({ params, containerStyles }: Props) => {
               <p
                 style={{
                   fontSize: '1rem',
-                  marginBottom: '1.25em',
+                  marginBottom: '1.2em',
                   lineHeight: '1.8',
                 }}
                 {...props}
@@ -264,7 +264,7 @@ const PostMarkdown = ({ params, containerStyles }: Props) => {
               <blockquote
                 className="md-blockquote"
                 style={{
-                  padding: '0.7em 1em 0.7em 1em',
+                  padding: '0.7em 0em 0.7em 1em',
                   margin: '1em 0',
                 }}
                 {...props}
