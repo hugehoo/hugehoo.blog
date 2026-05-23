@@ -9,8 +9,8 @@ open: true
 ---
 
 <i>이 글의 모든 예시는 grpc-go 를 기준으로 설명합니다.</i>
-- [grpc-go Issue #8996](https://github.com/grpc/grpc-go/issues/8996)
-- [grpc-go PR #9094](https://github.com/grpc/grpc-go/pull/9094)
+- [Issue #8996](https://github.com/grpc/grpc-go/issues/8996)
+- [PR #9094](https://github.com/grpc/grpc-go/pull/9094)
 
 ## 1. 화이트 박스 테스트와 블랙 박스 테스트
 
@@ -95,12 +95,10 @@ var idleTimeout = 10 * time.Minute
 [GitHub Issue #8996](https://github.com/grpc/grpc-go/issues/8996)에 이 16개의 테스트를 `package balancergroup_test`(블랙 박스)로 마이그레이션하는 내용이 등록되었다.
 핵심은 테스트 로직을 다시 쓰는 것이 아니라 패키지 선언을 `balancergroup`에서 `balancergroup_test`로 바꾸고 그에 맞춰 타입과 함수를 `balancergroup.New`, `balancergroup.Options`처럼 패키지 한정자로 명시하는 것이다. 즉 테스트의 관심사는 유지한 채, 접근 가능한 범위만 좁힌 변경에 가깝다.
 
-<br/>
 
 ### 화이트 박스에서 가능한 위험한 코드
 
 화이트 박스에서는 이런 코드가 컴파일된다.
-
 ```go
 // package balancergroup — 내부 구현에 직접 접근
 func TestCacheExpiry(t *testing.T) {
@@ -119,41 +117,36 @@ func TestCacheExpiry(t *testing.T) {
 왜 내부 구현에 직접 의존하면 안 될까? 내부 구현은 언제든 바뀔 수 있기 때문이다. 비공개 필드는 외부와의 계약이 아니라 개발자가 비교적 쉽게 수정할 수 있는 영역이다.
 동작이 동일하더라도 내부 구조가 바뀌는 순간 테스트는 깨진다.
 
-<br/>
 
 ### 블랙 박스 전환 후의 코드
 
 블랙 박스로 전환하면 패키지 한정자가 추가되고, 공개 API만 사용하게 된다.
 
+
+![change1](change1.png)
+- [코드 출처](https://github.com/hugehoo/grpc-go/blob/master/internal/balancergroup/balancergroup_test.go#L169)
+
+<br/>
+
 ```go
 // package balancergroup_test — 공개 API만 사용
 func initBalancerGroupForCachingTest(t *testing.T, idleCacheTimeout time.Duration) (
-    *weightedaggregator.Aggregator,
     *balancergroup.BalancerGroup,
-    *testutils.BalancerClientConn,
-    map[string]*testutils.TestSubConn,
 ) {
-    cc := testutils.NewBalancerClientConn(t)
-    gator := weightedaggregator.New(cc, nil, testutils.NewTestWRR)
-    gator.Start()
     bg := balancergroup.New(balancergroup.Options{
-        CC:                      cc,
-        BuildOpts:               balancer.BuildOptions{},
-        StateAggregator:         gator,
-        Logger:                  nil,
-        SubBalancerCloseTimeout: idleCacheTimeout,
+    ...
     })
-    // ...
 }
 ```
 
-`New(Options{...})`가 `balancergroup.New(balancergroup.Options{...})`로 바뀌었다. 외부 패키지이므로 패키지 이름을 명시해야 한다.
+`New(Options{...})`가 `balancergroup.New(balancergroup.Options{...})`로 바뀌었다. 
+외부 패키지이므로 패키지 이름을 명시해야 한다.
 
 | 변경 전 (화이트 박스) | 변경 후 (블랙 박스) |
 |---|---|
-| `New(Options{...})` | `balancergroup.New(balancergroup.Options{...})` |
-| `*BalancerGroup` | `*balancergroup.BalancerGroup` |
-| `ParseConfig(...)` | `balancergroup.ParseConfig(...)` |
+| New(Options{...}) | balancergroup.New(balancergroup.Options{...}) |
+| *BalancerGroup | *balancergroup.BalancerGroup |
+| ParseConfig(...) | balancergroup.ParseConfig(...) |
 
 <br/>
 
