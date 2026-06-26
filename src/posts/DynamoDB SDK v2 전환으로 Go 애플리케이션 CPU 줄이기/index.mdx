@@ -57,6 +57,34 @@ Pyroscope의 CPU profile은 wall clock 시간이 아니라 CPU sample을 누적�
 
 ---
 
+## Pyroscope 데이터를 어떻게 가져왔나
+
+Pyroscope UI에서도 flamegraph를 볼 수 있지만, 배포 전후를 같은 기준으로 비교하려면 로컬에서 pprof 파일로 내려받아 보는 편이 더 편했습니다.
+이번에는 로컬에 설치된 `profilecli`를 사용했습니다.
+아래 명령어의 URL과 label selector는 환경에 맞게 바꾸면 됩니다.
+
+```bash
+profilecli query profile \
+  --url=https://pyroscope.example.com \
+  --query='{service_name="...", env="prod"}' \
+  --from='2026-06-26T09:50:00+09:00' \
+  --to='2026-06-26T10:20:00+09:00' \
+  --profile-type='process_cpu:cpu:nanoseconds:cpu:nanoseconds' \
+  --output=pprof=pre_cpu.pprof
+```
+
+내려받은 pprof는 Go에 기본 포함된 `go tool pprof`로 확인했습니다.
+
+```bash
+go tool pprof -top -cum pre_cpu.pprof
+go tool pprof -top -flat pre_cpu.pprof
+```
+
+여기서 `cum`은 함수 아래에서 호출된 하위 함수 비용까지 포함한 값이고, `flat`은 해당 함수가 직접 사용한 비용입니다.
+이번 분석에서는 먼저 `cum`으로 어떤 요청 경로가 큰지 찾고, 그 다음 `flat`으로 실제 CPU를 태우는 함수가 무엇인지 확인했습니다.
+
+---
+
 ## 어디에서 CPU가 줄었나
 
 전체 CPU만 보면 결과는 알 수 있지만 원인은 알기 어렵습니다.
