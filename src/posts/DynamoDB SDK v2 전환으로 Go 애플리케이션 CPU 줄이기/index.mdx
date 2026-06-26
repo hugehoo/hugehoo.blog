@@ -1,0 +1,348 @@
+---
+title: 'DynamoDB SDK v2 전환으로 Go 애플리케이션 CPU 줄이기'
+date: 2026-06-26
+desc: Pyroscope로 확인한 reflection 병목과 SDK 전환 효과
+thumbnail:
+ogImage: /b-tree-2.png
+category: go
+open: true
+---
+
+## 들어가는 글
+
+최근 운영 중인 Go API에서 DynamoDB 클라이언트를 v1에서 v2로 전환한 뒤 CPU 사용량이 크게 줄어드는 경험을 했습니다.
+배포 전후 30분을 Pyroscope로 비교했을 때 전체 CPU 샘플은 17.95h에서 7.01h로 줄었습니다. 비율로는 약 61% 감소입니다.
+같은 구간의 요청량은 4.2% 정도만 줄었기 때문에 단순히 트래픽이 줄어서 생긴 변화로 보기는 어려웠습니다.
+
+이 글에서는 특정 회사의 서비스 구조를 몰라도 이해할 수 있도록 문제를 조금 일반화해서 설명해보려 합니다.
+상황은 단순합니다.
+
+- Go로 작성된 API 서버가 있습니다.
+- 요청 처리 중 DynamoDB에서 사용자와 타겟팅 관련 데이터를 읽습니다.
+- DynamoDB 접근에는 `guregu/dynamo`를 사용하고 있었습니다.
+- 이 라이브러리를 v1에서 v2로 전환하자 CPU가 크게 줄었습니다.
+
+처음에는 “SDK 버전을 올렸더니 빨라졌다” 정도로 보일 수 있습니다.
+하지만 실제로 들여다보면 네트워크 호출 수가 줄어든 것이 아니라, DynamoDB 응답을 Go 객체로 바꾸는 과정의 CPU 비용이 줄어든 것이 핵심이었습니다.
+
+이 글의 목표는 두 가지입니다.
+첫째, Pyroscope 같은 continuous profiler로 성능 개선을 어떻게 확인했는지 정리합니다.
+둘째, `aws-sdk-go`, `aws-sdk-go-v2`, `guregu/dynamo` 사이의 관계와 내부 구현 차이가 왜 CPU 차이로 이어졌는지 설명합니다.
+
+---
+
+## 배포 전후 측정 결과
+
+측정은 배포 시각을 기준으로 배포 전 30분과 배포 후 30분을 비교했습니다.
+배포 직후에는 구버전과 신버전 pod가 섞일 수 있어, 배포 후 첫 10분은 제외했습니다.
+
+| 구간      | 시간                       |
+| --------- | -------------------------- |
+| 배포 시각 | 2026-06-26 10:30 KST       |
+| 배포 전   | 2026-06-26 09:50-10:20 KST |
+| 배포 후   | 2026-06-26 10:40-11:10 KST |
+
+Pyroscope의 CPU profile은 wall clock 시간이 아니라 CPU sample을 누적해서 보여줍니다.
+따라서 30분 구간을 봤는데도 17.95h 같은 값이 나올 수 있습니다.
+여러 pod와 여러 CPU core에서 소비한 시간이 합산되기 때문입니다.
+
+| 지표               |    배포 전 |    배포 후 |   변화 |
+| ------------------ | ---------: | ---------: | -----: |
+| Pyroscope CPU 샘플 |     17.95h |      7.01h | -61.0% |
+| 요청 수            | 30,057,920 | 28,784,846 |  -4.2% |
+| 요청당 CPU         |    2.149ms |    0.876ms | -59.2% |
+
+요청 수가 약간 줄기는 했지만 CPU 감소폭과는 차이가 큽니다.
+요청당 CPU로 보정해도 약 59% 개선됐기 때문에 실제 처리 비용이 줄었다고 보는 것이 자연스럽습니다.
+
+---
+
+## 어디에서 CPU가 줄었나
+
+전체 CPU만 보면 결과는 알 수 있지만 원인은 알기 어렵습니다.
+그래서 Pyroscope에서 cumulative CPU 기준으로 어떤 함수가 줄었는지 확인했습니다.
+
+cumulative CPU는 해당 함수 자체에서 쓴 CPU뿐 아니라, 그 함수가 호출한 하위 함수에서 쓴 CPU까지 포함한 값입니다.
+API handler나 repository 함수처럼 여러 일을 묶어서 수행하는 함수의 비용을 볼 때 유용합니다.
+
+| 경로                       |          배포 전 |         배포 후 |   변화 |
+| -------------------------- | ---------------: | --------------: | -----: |
+| 사용자 활동 조회           | 31,865s / 49.32% | 4,929s / 19.54% | -84.5% |
+| 타겟팅 모델 조회           |  8,154s / 12.62% |  1,916s / 7.59% | -76.5% |
+| AWS SDK v1 JSON unmarshal  | 30,347s / 46.97% |    642s / 2.55% | -97.9% |
+| `reflect.StructTag.Lookup` |  8,724s / 13.50% |    840s / 3.33% | -90.4% |
+| `runtime.scanobject`       |   6,159s / 9.53% | 2,864s / 11.35% | -53.5% |
+
+가장 눈에 띄는 변화는 AWS SDK v1의 JSON unmarshal 비용입니다.
+배포 전에는 전체 CPU의 거의 절반이 `github.com/aws/aws-sdk-go/private/protocol/jsonrpc.Unmarshal` 아래에 있었습니다.
+배포 후에는 이 비중이 2.55%까지 내려갔습니다.
+
+이 결과만 보면 개선 지점이 꽤 분명해집니다.
+DynamoDB 자체가 빨라졌다기보다는, DynamoDB 응답을 애플리케이션 내부 struct로 바꾸는 과정이 가벼워졌습니다.
+
+---
+
+## 변경한 코드는 크지 않았습니다
+
+코드 변경 자체는 복잡하지 않았습니다.
+기존에는 `github.com/guregu/dynamo`를 사용했고, 변경 후에는 `github.com/guregu/dynamo/v2`를 사용했습니다.
+
+```go
+// before
+import "github.com/guregu/dynamo"
+
+err := table.
+    Get(hashKey, value).
+    AllWithContext(ctx, &items)
+```
+
+```go
+// after
+import "github.com/guregu/dynamo/v2"
+
+err := table.
+    Get(hashKey, value).
+    All(ctx, &items)
+```
+
+초기화 코드도 v2용 DynamoDB client를 사용하도록 바뀌었습니다.
+
+```go
+ddb := dynamo.NewFromIface(infra.DynamoDBV2())
+table := ddb.Table(tableName)
+```
+
+겉보기에는 메서드 이름에서 `WithContext`가 빠진 정도로 보일 수 있습니다.
+하지만 내부적으로는 꽤 큰 차이가 있습니다.
+
+---
+
+## aws-sdk-go와 guregu/dynamo의 관계
+
+먼저 관계부터 정리하겠습니다.
+`guregu/dynamo`는 DynamoDB를 Go에서 조금 더 편하게 쓰기 위한 래퍼 라이브러리입니다.
+테이블, 쿼리, 조건식, struct marshal/unmarshal 같은 부분을 개발자가 쓰기 쉽게 감싸줍니다.
+
+하지만 실제 HTTP 요청, 인증 서명, DynamoDB protocol 처리, 응답 파싱은 아래쪽의 AWS SDK가 담당합니다.
+
+```text
+애플리케이션 코드
+    |
+    v
+guregu/dynamo
+    |
+    v
+AWS SDK for Go
+    |
+    v
+DynamoDB
+```
+
+따라서 `guregu/dynamo`의 major version이 바뀌면, 단순히 래퍼 API만 바뀌는 것이 아닙니다.
+
+| 라이브러리                    | 내부에서 사용하는 AWS SDK      |
+| ----------------------------- | ------------------------------ |
+| `github.com/guregu/dynamo` v1 | `github.com/aws/aws-sdk-go` v1 |
+| `github.com/guregu/dynamo/v2` | `github.com/aws/aws-sdk-go-v2` |
+
+이번 개선은 `guregu/dynamo` v1에서 v2로 전환한 일이지만, 실제로는 AWS SDK v1에서 AWS SDK v2로 DynamoDB 처리 경로가 바뀐 효과가 큽니다.
+
+---
+
+## v1은 왜 비쌌을까
+
+배포 전 profile에서 가장 크게 보인 함수는 AWS SDK v1의 JSON unmarshal 경로였습니다.
+여기서 중요한 단어는 reflection입니다.
+
+reflection은 프로그램이 실행 중에 타입 정보를 들여다볼 수 있게 해주는 기능입니다.
+예를 들어 어떤 struct에 필드가 몇 개 있는지, 각 필드의 tag가 무엇인지, 이 값이 pointer인지 slice인지 같은 정보를 런타임에 확인할 수 있습니다.
+편리하지만 공짜는 아닙니다.
+요청마다, 응답 item마다, 필드마다 반복되면 CPU 비용이 커집니다.
+
+AWS SDK v1의 DynamoDB `AttributeValue`는 하나의 큰 struct에 여러 타입을 포인터 필드로 들고 있습니다.
+
+```go
+type AttributeValue struct {
+    B    []byte
+    BOOL *bool
+    L    []*AttributeValue
+    M    map[string]*AttributeValue
+    N    *string
+    S    *string
+    // ...
+}
+```
+
+문자열이면 `S`가 채워지고, 숫자면 `N`이 채워지고, map이면 `M`이 채워지는 식입니다.
+대부분의 필드는 nil이고, 실제로 어떤 타입인지 확인하려면 여러 필드를 확인해야 합니다.
+
+또 AWS SDK v1의 JSON protocol 코드는 struct field와 tag를 reflection으로 훑습니다.
+Pyroscope에서 `reflect.StructTag.Lookup`이 크게 보인 이유도 여기에 있습니다.
+
+실제 flamegraph에서 보인 흐름은 대략 이랬습니다.
+
+```text
+UserRepository
+    |
+    v
+guregu/dynamo v1 Query.AllWithContext
+    |
+    v
+aws-sdk-go v1 jsonrpc.Unmarshal
+    |
+    v
+jsonutil.unmarshalStruct
+    |
+    v
+reflect.StructTag.Lookup
+```
+
+DynamoDB 조회 자체는 필요합니다.
+하지만 응답을 Go struct로 바꾸는 과정에서 runtime reflection이 너무 많이 수행되고 있었습니다.
+
+---
+
+## v2는 무엇이 달랐을까
+
+AWS SDK v2의 DynamoDB `AttributeValue`는 v1과 모양이 다릅니다.
+하나의 큰 struct에 모든 타입을 넣는 대신, 타입별 struct를 나누고 interface로 묶는 union 형태를 사용합니다.
+
+```go
+type AttributeValue interface {
+    isAttributeValue()
+}
+
+type AttributeValueMemberS struct {
+    Value string
+}
+
+type AttributeValueMemberN struct {
+    Value string
+}
+
+type AttributeValueMemberM struct {
+    Value map[string]AttributeValue
+}
+```
+
+문자열이면 `AttributeValueMemberS`, 숫자면 `AttributeValueMemberN`처럼 실제 값의 타입이 분리됩니다.
+serializer와 deserializer는 이 타입을 기준으로 switch를 수행합니다.
+
+```go
+switch v := av.(type) {
+case *types.AttributeValueMemberS:
+    // string 처리
+case *types.AttributeValueMemberN:
+    // number 처리
+case *types.AttributeValueMemberM:
+    // map 처리
+}
+```
+
+이 방식은 generic reflection 기반 JSON 처리보다 DynamoDB 응답 구조에 더 특화되어 있습니다.
+AWS SDK v2는 service model을 기반으로 생성된 serializer/deserializer 코드를 사용합니다.
+쉽게 말하면 “응답이 어떤 모양인지 실행 중에 매번 알아내는 코드”가 아니라, “DynamoDB 응답은 이런 모양이라고 알고 있는 코드”에 가깝습니다.
+
+여기에 `guregu/dynamo/v2` 쪽도 struct 타입 정보를 캐시합니다.
+v1에서는 struct field를 매번 훑는 비용이 profile에서 `fieldsInStruct`로 보였고, v2에서는 type cache를 통해 field 처리 계획을 재사용합니다.
+
+정리하면 변화는 다음과 같습니다.
+
+| 구분                | v1                                         | v2                                           |
+| ------------------- | ------------------------------------------ | -------------------------------------------- |
+| DynamoDB 래퍼       | `guregu/dynamo`                            | `guregu/dynamo/v2`                           |
+| AWS SDK             | `aws-sdk-go` v1                            | `aws-sdk-go-v2`                              |
+| AttributeValue 표현 | 포인터 필드가 많은 큰 struct               | 타입별 struct를 나눈 union 형태              |
+| protocol 처리       | reflection 기반 generic JSON 처리 비중 큼  | 생성된 DynamoDB serializer/deserializer 사용 |
+| struct field 처리   | 반복 reflection 비용이 profile에 크게 노출 | 타입 정보 캐시 활용                          |
+
+그래서 “SDK v2가 빠르다”라고만 말하면 설명이 부족합니다.
+이번 경우에는 v2 전환으로 reflection 기반 JSON decode와 struct tag 탐색이 줄었고, 이 변화가 CPU 개선으로 이어졌습니다.
+
+---
+
+## 작은 벤치마크로 다시 확인하기
+
+운영 profile만으로도 방향은 충분히 보였지만, marshal/unmarshal 자체의 차이를 확인하기 위해 비슷한 형태의 struct로 작은 벤치마크도 돌려봤습니다.
+운영 환경을 그대로 재현한 것은 아니므로 절대값보다는 경향만 보는 것이 맞습니다.
+
+| 작업      |                       v1 |                       v2 |              차이 |
+| --------- | -----------------------: | -----------------------: | ----------------: |
+| Marshal   | 약 2.5-2.7µs / 47 allocs | 약 0.8-1.0µs / 17 allocs |   약 2.5-3배 빠름 |
+| Unmarshal | 약 2.3-2.7µs / 23 allocs | 약 2.1-2.4µs / 10 allocs | 할당 수 절반 이하 |
+
+이 벤치마크도 production 결과와 같은 방향을 가리켰습니다.
+특히 marshal 쪽은 시간과 allocation 모두 크게 줄었고, unmarshal 쪽은 시간 차이보다 allocation 차이가 더 뚜렷했습니다.
+
+Go 애플리케이션에서 allocation이 줄면 그 자체로도 좋지만, 더 중요한 것은 GC가 해야 할 일이 줄어든다는 점입니다.
+이번 profile에서도 `runtime.scanobject`의 절대 CPU가 6,159s에서 2,864s로 줄었습니다.
+비율은 배포 후에도 11.35%로 보이지만, 전체 CPU가 크게 줄었기 때문에 절대값은 절반 이상 감소했습니다.
+
+---
+
+## 이 개선을 어떻게 해석해야 할까
+
+이번 개선은 “DynamoDB가 느렸다”는 이야기가 아닙니다.
+또 “네트워크 호출이 줄었다”는 이야기도 아닙니다.
+
+정확히는 다음에 가깝습니다.
+
+```text
+같은 DynamoDB 조회를 하더라도
+응답을 Go 객체로 바꾸는 방식이 바뀌면
+애플리케이션 CPU가 크게 달라질 수 있습니다.
+```
+
+서버 애플리케이션을 운영하다 보면 외부 시스템 I/O에 시선이 먼저 갑니다.
+DynamoDB, Redis, MySQL, S3 같은 이름이 보이면 자연스럽게 네트워크 latency나 서비스 쿼리 성능을 의심하게 됩니다.
+물론 그 의심은 자주 맞습니다.
+하지만 이번 사례에서는 애플리케이션 안쪽의 직렬화, 역직렬화, reflection, allocation 비용이 더 큰 문제였습니다.
+
+이런 문제는 일반적인 로그만으로는 잘 보이지 않습니다.
+쿼리 성공 여부, 응답 시간, 에러율은 정상인데 CPU만 높게 유지될 수 있습니다.
+이때 continuous profiling이 유용합니다.
+“느리다”가 아니라 “어느 함수 아래에서 CPU를 쓰고 있다”까지 보여주기 때문입니다.
+
+---
+
+## 주의할 점
+
+이번 측정은 완벽한 실험실 A/B 테스트는 아닙니다.
+운영 배포 전후 비교이고, 배포 전 구간에도 일부 신버전 시계열이 섞여 있었습니다.
+그래서 숫자를 소수점 단위까지 절대적인 값으로 받아들이기보다는, 큰 방향성을 보는 것이 맞습니다.
+
+다만 다음 근거 때문에 개선 자체는 충분히 신뢰할 수 있다고 판단했습니다.
+
+- 요청량 변화는 -4.2%인데 CPU 변화는 -61.0%였습니다.
+- 요청당 CPU로 보정해도 -59.2% 개선됐습니다.
+- flamegraph에서 v1 JSON unmarshal 경로가 46.97%에서 2.55%로 줄었습니다.
+- PR이 바꾼 경로와 profile에서 줄어든 경로가 일치했습니다.
+
+또 하나의 주의점은 allocation입니다.
+이번 글은 CPU 개선에 집중했습니다.
+배포 후 allocation profile에서는 별도로 확인해야 할 지점도 보였습니다.
+CPU가 좋아졌다고 해서 모든 성능 지표가 함께 좋아졌다고 단정하면 안 됩니다.
+성능 개선을 볼 때는 CPU, latency, allocation, GC, 에러율을 함께 보는 습관이 필요합니다.
+
+---
+
+## 마무리
+
+이번 작업을 통해 다시 느낀 점은, 성능 개선은 “어떤 라이브러리가 더 빠르다”에서 끝나면 안 된다는 것입니다.
+왜 빨라졌는지 설명할 수 있어야 다음에도 비슷한 문제를 찾을 수 있습니다.
+
+이번 사례에서 핵심은 다음과 같습니다.
+
+- `guregu/dynamo`는 AWS SDK 위에 있는 DynamoDB 래퍼입니다.
+- `guregu/dynamo` v1에서 v2로 바꾸면 AWS SDK v1에서 v2로 DynamoDB 처리 경로가 바뀝니다.
+- AWS SDK v1 경로에서는 reflection 기반 JSON unmarshal과 struct tag 탐색 비용이 컸습니다.
+- AWS SDK v2 경로에서는 DynamoDB 모델에 맞춰 생성된 serializer/deserializer와 union 형태의 AttributeValue를 사용합니다.
+- 그 결과 DynamoDB 응답을 Go struct로 바꾸는 CPU 비용이 줄었습니다.
+
+Go 서버를 운영하고 있다면, CPU가 높을 때 비즈니스 로직만 보지 않아도 됩니다.
+SDK, serializer, reflection, allocation처럼 애플리케이션의 아래쪽 레이어에서 CPU가 새고 있을 수 있습니다.
+Pyroscope 같은 profiler로 flamegraph를 보면 이런 비용이 생각보다 선명하게 드러납니다.
+
+이번 개선도 코드 변경은 작았습니다.
+하지만 변경의 효과를 이해하려면 라이브러리 한 겹 아래까지 내려가야 했습니다.
+그 아래에서 CPU를 쓰고 있던 것은 DynamoDB가 아니라, DynamoDB 응답을 Go 값으로 바꾸는 코드였습니다.
