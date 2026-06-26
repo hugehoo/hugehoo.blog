@@ -11,7 +11,7 @@ open: true
 ## 들어가는 글
 
 최근 운영 중인 Go API에서 DynamoDB 클라이언트를 v1에서 v2로 전환한 뒤 CPU 사용량이 크게 줄어드는 경험을 했습니다.
-배포 전후 30분을 Pyroscope로 비교했을 때 전체 CPU 샘플은 17.95h에서 7.01h로 줄었습니다. 비율로는 약 61% 감소입니다.
+배포 전후 30분을 Pyroscope로 비교했을 때 전체 CPU 샘플은 17.95h에서 7.01h로 줄었습니다. Pyroscope의 CPU profile은 여러 pod와 여러 CPU core에서 소비한 CPU 시간을 누적해서 보여주기 때문에, 30분 구간을 조회해도 값의 단위가 시간(h)으로 표현됩니다. 비율로는 약 61% 감소입니다.
 같은 구간의 요청량은 4.2% 정도만 줄었기 때문에 단순히 트래픽이 줄어서 생긴 변화로 보기는 어려웠습니다.
 
 이 글에서는 특정 회사의 서비스 구조를 몰라도 이해할 수 있도록 문제를 조금 일반화해서 설명해보려 합니다.
@@ -197,8 +197,7 @@ jsonutil.unmarshalStruct
 reflect.StructTag.Lookup
 ```
 
-DynamoDB 조회 자체는 필요합니다.
-하지만 응답을 Go struct로 바꾸는 과정에서 runtime reflection이 너무 많이 수행되고 있었습니다.
+DynamoDB 조회 후 응답을 Go struct로 바꾸는 과정에서 runtime reflection이 너무 많이 수행되고 있었습니다.
 
 ---
 
