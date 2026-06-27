@@ -67,29 +67,23 @@ Go heap은 Go 객체가 동적으로 할당되는 메모리 영역이다. `new`,
 
 Go 애플리케이션의 메모리를 볼 때 `Go heap 지표`와 `컨테이너 메모리 지표`를 분리해서 봐야 한다. Go heap은 Go 런타임이 관리하는 객체 메모리이고, Kubernetes 메모리는 프로세스가 OS 관점에서 실제로 점유하는 전체 메모리에 가깝다.
 
-#### 지표 목록
+### 지표 목록
 
 - `gc_heap_live.bytes`: 직전 GC 기준 live heap. 애플리케이션이 붙잡고 있는 Go 객체 크기에 가장 가깝다.  
-  runtime/metrics: `/gc/heap/live:bytes`
 
 - `memory_classes_heap_objects.bytes`: 현재 heap object로 사용 중인 메모리.  
-  runtime/metrics: `/memory/classes/heap/objects:bytes`
 
 - `gc_heap_goal.bytes`: 다음 GC가 발생하기 전까지 Go 런타임이 허용하려는 heap 목표치.  
-  runtime/metrics: `/gc/heap/goal:bytes`
 
 - `gc_gomemlimit.bytes`: `GOMEMLIMIT`으로 설정된 Go 런타임 soft limit.  
-  runtime/metrics: `/gc/gomemlimit:bytes`
 
 - `memory_classes_heap_released.bytes`: Go 런타임이 OS에 반환한 heap 메모리.  
-  runtime/metrics: `/memory/classes/heap/released:bytes`
 
 - `gc_limiter_last_enabled.gc_cycle`: 메모리 limit 때문에 GC CPU limiter가 마지막으로 켜진 GC cycle.  
-  runtime/metrics: `/gc/limiter/last-enabled:gc-cycle`
 
 - `kubernetes.memory.working_set` / `rss`: Kubernetes/OS 관점의 컨테이너 메모리. Go heap 밖의 메모리도 포함된다.
 
-#### 이렇게 해석한다
+### 지표 해석
 
 - `gc_heap_live.bytes`가 계속 증가하고 GC 이후에도 잘 떨어지지 않는다.  
   → 캐시, 전역 맵, 요청 단위 데이터 보관, 슬라이스 참조 유지 같은 Go heap 누수를 의심한다.
