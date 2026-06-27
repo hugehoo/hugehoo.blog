@@ -21,11 +21,11 @@ open: true
 둘째, `aws-sdk-go`, `aws-sdk-go-v2`, `guregu/dynamo` 사이의 관계와 내부 구현 차이가 왜 CPU 차이로 이어졌는지 설명합니다.
 
 ## Pyroscope에서 발견한 CPU 이상 지표
-pyroscope에서 저녁 피크 시간대의 cpu 지표를 확인하면, 대부분의 cpu time을 차지하는 요소는 `guregu/dynamo` 라이브러리였습니다.
-버즈빌에서는 주요 광고 할당 API 뿐만 아니라 상위 API 호출 지점에서 DynamoDB를 적극적으로 활용하고 있습니다. 
+pyroscope에서 저녁 피크 시간대의 cpu 지표를 확인하면 대부분의 cpu time을 차지하는 요소는 `guregu/dynamo` 라이브러리였습니다.
+버즈빌은 주요 광고 할당 API 뿐만 아니라 상위 API 호출 지점에서 DynamoDB를 적극적으로 활용하고 있습니다. 단순히 피크시간 트래픽 때문에 guregu/dynamo cpu 지표가 많이 잡는 것이라 생각할 수도 있었지만 flame graph 를 자세히 보면 해석이 달라집니다.
 ![dynamo-1.png](dynamo-1.png)
 
-Pyroscope flame graph에서 넓게 보이는 구간은 해당 호출 경로가 많은 CPU time을 사용했다는 의미로, 여기서는 DynamoDB 조회 경로, 특히 guregu/dynamo와 그 아래의 AWS SDK v1 처리 과정이 넓게 나타났습니다.
+Pyroscope flame graph에서 넓게 보이는 구간은 해당 호출 경로가 많은 CPU time을 사용했다는 의미입니다. 여기서는 DynamoDB 조회 경로, 특히 guregu/dynamo와 그 아래의 AWS SDK v1 처리 과정이 넓게 나타났습니다.
 특히 AWS SDK v1의 **JSON unmarshal과 reflection 기반 struct 변환 과정**이 넓게 관측됐습니다.
 
 
