@@ -1,0 +1,122 @@
+---
+title: 'Go Memory 기본지식'
+date: 2026-06-27
+desc: 공부해야겠지?
+thumbnail:
+ogImage: /b-tree-2.png
+category: go
+open: true
+---
+
+
+## memory request / limit / GOMEMLIMIT 차이
+
+어떤 application의 설정이 아래와 같다고 가정해보자. 
+
+```text
+memory request = 2GiB
+memory limit   = 2GiB
+GOMEMLIMIT     = 1800MiB
+```
+
+- `memory request`: Kubernetes 스케줄링 기준값으로, 이 파드는 최소 이 정도 메모리가 필요하다고 노드 스케줄러에게 알려주는 예약량이다.
+- `memory limit`: 컨테이너가 넘으면 OOMKill 될 수 있는 하드 상한이다.
+- `GOMEMLIMIT`: Go 런타임이 관리하는 메모리에 적용되는 soft memory limit. Kubernetes 설정이 아니라, Go GC가 메모리 사용량을 보고 더 적극적으로 실행되는 기준이다.
+
+
+위 케이스에서 컨테이너 전체 한도는 2GiB이고 Go 런타임은 그보다 낮은 1800MiB 근처에서 GC 압력을 높인다.
+`GOMEMLIMIT`을 더 낮게 두는 이유는 컨테이너 메모리가 Go 런타임만의 것이 아니기 때문이다. cgo/native 메모리, syscall로 잡은 mmap, page cache, OS/라이브러리 메모리도 같은 컨테이너 limit 안에서 같이 쓴다.
+
+Go 런타임 관점에서 `GOMEMLIMIT`은 대략 `runtime`이 관리하는 전체 메모리에서 OS로 이미 반환한 heap을 뺀 값에 걸린다. 그래서 heap object만의 제한도 아니고, 프로세스 RSS 전체의 제한도 아니다.
+
+
+운영에서는 보통 다음 관계가 되도록 메모리 예산을 잡는다.
+
+```text
+Go runtime-managed memory < GOMEMLIMIT < container memory limit
+```
+
+`GOMEMLIMIT`은 OOM을 막는 하드 캡이 아니라 GC 튜닝에 가깝다.
+그래서 `GOMEMLIMIT=1800MiB`라고 해서 프로세스 전체 메모리가 1800MiB를 절대 넘지 않는다거나, 그 값을 넘는 순간 OOM이 발생한다는 뜻은 아니다.
+
+반대로 live heap 자체가 너무 크면 GC를 아무리 자주 돌려도 줄일 수 없다. GC는 참조가 끊긴 객체만 회수할 수 있기 때문에 애플리케이션이 계속 붙잡고 있는 객체는 `GOMEMLIMIT`보다 우선한다.
+
+
+## Go heap 이해하기
+
+Go application의 프로세스 메모리를 크게 나누면 아래와 같다.
+
+``` text
+컨테이너 메모리 / OS가 보는 프로세스 메모리
+├─ Go heap
+│  ├─ live objects: 아직 참조 중인 Go 객체
+│  ├─ garbage: 다음 GC 때 회수될 객체
+│  └─ free/unused heap span: Go runtime이 잡아둔 빈 공간
+├─ goroutine stack
+├─ Go runtime metadata
+├─ cgo/native memory
+├─ mmap/file-backed memory
+├─ network/file buffer
+└─ 기타 OS/라이브러리 메모리
+```
+
+Go heap은 Go 객체가 동적으로 할당되는 메모리 영역이다. `new`, `make`, 슬라이스/맵 확장, 함수 밖으로 escape한 지역 변수 등이 heap에 올라간다. Go GC는 heap 안에서 아직 참조되는 객체를 live object로 표시하고 더 이상 참조되지 않는 객체는 회수한다.
+**다만 회수된 메모리가 항상 즉시 OS로 반환되는 것은 아니고,** Go 런타임이 재사용하려고 잡고 있을 수 있다.
+
+### 주요 지표
+
+Go 애플리케이션의 메모리를 볼 때 `Go heap 지표`와 `컨테이너 메모리 지표`를 분리해서 봐야 한다. Go heap은 Go 런타임이 관리하는 객체 메모리이고, Kubernetes 메모리는 프로세스가 OS 관점에서 실제로 점유하는 전체 메모리에 가깝다.
+
+| Datadog 지표 | runtime/metrics 원본 | 의미 |
+| --- | --- | --- |
+| `gc_heap_live.bytes` | `/gc/heap/live:bytes` | 직전 GC 기준으로 살아있다고 판단된 Go 객체 크기. 애플리케이션이 붙잡고 있는 heap 크기에 가장 가깝다. |
+| `memory_classes_heap_objects.bytes` | `/memory/classes/heap/objects:bytes` | 현재 heap object로 사용 중인 메모리. |
+| `gc_heap_goal.bytes` | `/gc/heap/goal:bytes` | 다음 GC가 발생하기 전까지 Go 런타임이 허용하려는 heap 목표치. |
+| `gc_gomemlimit.bytes` | `/gc/gomemlimit:bytes` | `GOMEMLIMIT`으로 설정된 Go 런타임 soft limit. |
+| `memory_classes_heap_released.bytes` | `/memory/classes/heap/released:bytes` | Go 런타임이 OS에 반환한 heap 메모리. |
+| `gc_limiter_last_enabled.gc_cycle` | `/gc/limiter/last-enabled:gc-cycle` | 메모리 limit 때문에 GC CPU limiter가 마지막으로 켜진 GC cycle. 자주 변하면 limit 압박을 의심한다. |
+| `kubernetes.memory.working_set` / `rss` | - | Kubernetes/OS 관점의 컨테이너 메모리. Go heap뿐 아니라 native memory, mmap, stack, page cache 등도 포함된다. |
+
+따라서 Go 애플리케이션의 메모리 상태는 하나의 지표만 보고 판단하기 어렵다. 핵심은 Go heap이 증가하는 문제인지, 아니면 Go heap 밖의 메모리가 큰 문제인지를 구분하는 것이다.
+예를 들어 `gc_heap_live.bytes`가 계속 증가하고 GC 이후에도 잘 떨어지지 않는다면, 애플리케이션이 Go 객체를 오래 붙잡고 있을 가능성이 있다. 이 경우 캐시, 전역 맵, 요청 단위 데이터 보관, 슬라이스 참조 유지 같은 **Go heap 누수 가능성**을 먼저 봐야 한다.
+반대로 `gc_heap_live.bytes`는 낮은데 `rss`나 `working_set`이 높다면 Go heap 자체보다는 cgo/native memory, mmap, page cache, goroutine stack, 외부 라이브러리의 메모리 사용을 의심해야 한다.
+
+``` text
+Go heap live가 계속 증가하고 내려오지 않음
+→ Go 객체 leak 가능성
+
+Go heap은 낮은데 container memory가 높음
+→ cgo/native/mmap/page cache 가능성
+
+container working_set이 limit에 근접
+→ OOM 위험
+
+GOMEMLIMIT 근처에서 GC pause/CPU 증가
+→ 메모리 압박으로 GC 비용 증가 가능성
+```
+
+## GC가 하는 일
+
+Go GC는 live object를 찾고, 더 이상 참조되지 않는 객체를 회수한다.
+
+1. 요청 처리 중 객체가 많이 만들어짐
+2. heap 사용량 증가
+3. GC 실행
+4. 안 쓰는 객체를 free 상태로 만듦
+5. 필요하면 나중에 재사용
+6. 일부는 OS에 반환
+
+그래서 Go 앱은 메모리 그래프가 톱니 모양으로 보일 수 있다.
+
+![go-memory-1.png](go-memory-1.png)
+
+``` text
+heap 증가 → GC → 감소 → 다시 증가 → GC → 감소
+```
+
+GC가 언제 도는지는 `GOGC`, live heap, allocation rate, `GOMEMLIMIT`의 영향을 받는다.
+기본값인 `GOGC=100`은 GC 직후 live heap을 기준으로, 대략 그만큼 더 할당될 여유를 두고 다음 heap goal을 잡는다는 뜻이다.
+GOGC=100은 live heap의 약 100% 정도 메모리를 더 사용할 여유를 준다는 의미로, GOGC=50이면 더 자주 GC를 돌려 메모리를 아끼고, GOGC=200이면 GC 주기를 길게하여 CPU를 아끼는 대신 peak memory가 커질 수 있다.
+
+`GOMEMLIMIT`이 있으면 이 heap goal이 메모리 예산 안으로 낮춰진다.
+limit에 가까워질수록 GC가 더 자주 돌고, live heap이 이미 큰 상태라면 GC CPU만 늘고 메모리는 잘 줄지 않을 수 있다.
