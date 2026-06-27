@@ -23,16 +23,53 @@ open: true
 
 ## Pyroscope에서 발견한 CPU 이상 지표
 
-pyroscope에서 저녁 피크 시간대의 cpu 지표를 확인하면 대부분의 cpu time을 차지하는 요소는 `guregu/dynamo` 라이브러리였습니다.
-버즈빌은 주요 광고 할당 API 뿐만 아니라 상위 API 호출 지점에서 DynamoDB를 적극적으로 활용하고 있습니다. 단순히 피크시간 트래픽 때문에 guregu/dynamo cpu 지표가 많이 잡는 것이라 생각할 수도 있었지만 flame graph 를 자세히 보면 해석이 달라집니다.
+Pyroscope에서 저녁 피크 시간대의 CPU profile을 확인했을 때, 가장 먼저 눈에 들어온 것은 `guregu/dynamo`였습니다.
+flame graph에서 DynamoDB 조회 경로가 넓게 보였고, 그 아래로 AWS SDK v1의 JSON unmarshal과 reflection 관련 호출이 길게 이어지고 있었습니다.
+
+버즈빌의 광고 서빙 흐름에서는 DynamoDB를 적극적으로 사용합니다.
+그래서 처음에는 “피크 시간대라 DynamoDB 호출이 많아서 그런 것 아닐까?”라고 생각할 수 있었습니다.
+하지만 flame graph를 자세히 보면 문제를 조금 더 좁혀볼 수 있었습니다.
+
 ![dynamo-1.png](dynamo-1.png)
 
-Pyroscope flame graph에서 넓게 보이는 구간은 해당 호출 경로가 많은 CPU time을 사용했다는 의미입니다. 여기서는 DynamoDB 조회 경로, 특히 guregu/dynamo와 그 아래의 AWS SDK v1 처리 과정이 넓게 나타났습니다.
-특히 AWS SDK v1의 **JSON unmarshal과 reflection 기반 struct 변환 과정**이 넓게 관측됐습니다.
+## CPU profile에서 바로 알 수 있는 것
 
-Pyroscope CPU profile은 애플리케이션이 CPU를 어디에서 썼는지 보여주며, DynamoDB 응답을 Go struct로 변환하는 과정에서 CPU가 많이 소모되고 있는 점을 명확히 나타냈습니다.
-현재 go application은 직접 AWS SDK로 호출하지 않고, `guregu/dynamo` wrapper를 사용중이기 때문에
-DynamoDB 사용 자체를 줄이는 것이 아닌 같은 조회를 더 가벼운 SDK 경로로 수행하도록 개선하는 방향이 필요했습니다.
+Pyroscope flame graph에서 가로로 넓게 보이는 구간은 해당 호출 경로에서 CPU time을 많이 사용했다는 의미입니다.
+반대로 네트워크 응답을 기다리는 시간처럼 CPU를 거의 쓰지 않는 대기 시간은 이 그림에서 크게 보이지 않습니다.
+
+따라서 이 그림만 보고 “DynamoDB 응답 시간이 느렸다”고 말할 수는 없습니다.
+대신 “DynamoDB 조회 이후 응답을 Go struct로 바꾸는 과정에서 CPU를 많이 쓰고 있다”는 점은 비교적 분명했습니다.
+
+특히 넓게 보인 경로는 다음과 같았습니다.
+
+```text
+DynamoDB 조회
+    |
+    v
+guregu/dynamo
+    |
+    v
+AWS SDK v1 JSON unmarshal
+    |
+    v
+reflection 기반 struct 변환
+```
+
+이 지점에서 개선 방향이 달라졌습니다.
+DynamoDB 조회 자체를 없애는 것이 아니라, 같은 조회 결과를 애플리케이션 객체로 바꾸는 비용을 줄일 수 있는지 확인하는 쪽이었습니다.
+
+## 왜 SDK v2 전환을 의심했나
+
+당시 애플리케이션 코드는 DynamoDB를 직접 AWS SDK로 호출하지 않고, 그 위를 감싼 `guregu/dynamo`를 사용하고 있었습니다.
+그리고 `guregu/dynamo` v1은 내부적으로 AWS SDK v1을 사용합니다.
+
+즉 flame graph에서 `guregu/dynamo`가 넓게 보인다는 것은 단순히 wrapper 라이브러리 하나가 무겁다는 뜻이 아니었습니다.
+그 아래의 AWS SDK v1 DynamoDB 처리 경로까지 함께 보고 있다는 의미였습니다.
+
+반대로 `guregu/dynamo/v2`로 전환하면 wrapper만 바뀌는 것이 아니라 내부 AWS SDK도 v2 계열로 바뀝니다.
+이 차이 때문에 “DynamoDB를 계속 쓰되, 응답 처리 경로만 바꿔도 CPU가 줄 수 있지 않을까?”라는 가설을 세울 수 있었습니다.
+
+이 가설을 바탕으로 광고 서빙 흐름의 사용자 조회 경로에서 DynamoDB wrapper를 v2로 전환했습니다.
 
 ## 적용 범위: 광고 서빙 경로의 공통 병목
 
