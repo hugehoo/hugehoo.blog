@@ -67,33 +67,41 @@ Go heap은 Go 객체가 동적으로 할당되는 메모리 영역이다. `new`,
 
 Go 애플리케이션의 메모리를 볼 때 `Go heap 지표`와 `컨테이너 메모리 지표`를 분리해서 봐야 한다. Go heap은 Go 런타임이 관리하는 객체 메모리이고, Kubernetes 메모리는 프로세스가 OS 관점에서 실제로 점유하는 전체 메모리에 가깝다.
 
-| Datadog 지표 | runtime/metrics 원본 | 의미 |
-| --- | --- | --- |
-| `gc_heap_live.bytes` | `/gc/heap/live:bytes` | 직전 GC 기준으로 살아있다고 판단된 Go 객체 크기. 애플리케이션이 붙잡고 있는 heap 크기에 가장 가깝다. |
-| `memory_classes_heap_objects.bytes` | `/memory/classes/heap/objects:bytes` | 현재 heap object로 사용 중인 메모리. |
-| `gc_heap_goal.bytes` | `/gc/heap/goal:bytes` | 다음 GC가 발생하기 전까지 Go 런타임이 허용하려는 heap 목표치. |
-| `gc_gomemlimit.bytes` | `/gc/gomemlimit:bytes` | `GOMEMLIMIT`으로 설정된 Go 런타임 soft limit. |
-| `memory_classes_heap_released.bytes` | `/memory/classes/heap/released:bytes` | Go 런타임이 OS에 반환한 heap 메모리. |
-| `gc_limiter_last_enabled.gc_cycle` | `/gc/limiter/last-enabled:gc-cycle` | 메모리 limit 때문에 GC CPU limiter가 마지막으로 켜진 GC cycle. 자주 변하면 limit 압박을 의심한다. |
-| `kubernetes.memory.working_set` / `rss` | - | Kubernetes/OS 관점의 컨테이너 메모리. Go heap뿐 아니라 native memory, mmap, stack, page cache 등도 포함된다. |
+#### 지표 목록
 
-따라서 Go 애플리케이션의 메모리 상태는 하나의 지표만 보고 판단하기 어렵다. 핵심은 Go heap이 증가하는 문제인지, 아니면 Go heap 밖의 메모리가 큰 문제인지를 구분하는 것이다.
-예를 들어 `gc_heap_live.bytes`가 계속 증가하고 GC 이후에도 잘 떨어지지 않는다면, 애플리케이션이 Go 객체를 오래 붙잡고 있을 가능성이 있다. 이 경우 캐시, 전역 맵, 요청 단위 데이터 보관, 슬라이스 참조 유지 같은 **Go heap 누수 가능성**을 먼저 봐야 한다.
-반대로 `gc_heap_live.bytes`는 낮은데 `rss`나 `working_set`이 높다면 Go heap 자체보다는 cgo/native memory, mmap, page cache, goroutine stack, 외부 라이브러리의 메모리 사용을 의심해야 한다.
+- `gc_heap_live.bytes`: 직전 GC 기준 live heap. 애플리케이션이 붙잡고 있는 Go 객체 크기에 가장 가깝다.  
+  runtime/metrics: `/gc/heap/live:bytes`
 
-``` text
-Go heap live가 계속 증가하고 내려오지 않음
-→ Go 객체 leak 가능성
+- `memory_classes_heap_objects.bytes`: 현재 heap object로 사용 중인 메모리.  
+  runtime/metrics: `/memory/classes/heap/objects:bytes`
 
-Go heap은 낮은데 container memory가 높음
-→ cgo/native/mmap/page cache 가능성
+- `gc_heap_goal.bytes`: 다음 GC가 발생하기 전까지 Go 런타임이 허용하려는 heap 목표치.  
+  runtime/metrics: `/gc/heap/goal:bytes`
 
-container working_set이 limit에 근접
-→ OOM 위험
+- `gc_gomemlimit.bytes`: `GOMEMLIMIT`으로 설정된 Go 런타임 soft limit.  
+  runtime/metrics: `/gc/gomemlimit:bytes`
 
-GOMEMLIMIT 근처에서 GC pause/CPU 증가
-→ 메모리 압박으로 GC 비용 증가 가능성
-```
+- `memory_classes_heap_released.bytes`: Go 런타임이 OS에 반환한 heap 메모리.  
+  runtime/metrics: `/memory/classes/heap/released:bytes`
+
+- `gc_limiter_last_enabled.gc_cycle`: 메모리 limit 때문에 GC CPU limiter가 마지막으로 켜진 GC cycle.  
+  runtime/metrics: `/gc/limiter/last-enabled:gc-cycle`
+
+- `kubernetes.memory.working_set` / `rss`: Kubernetes/OS 관점의 컨테이너 메모리. Go heap 밖의 메모리도 포함된다.
+
+#### 이렇게 해석한다
+
+- `gc_heap_live.bytes`가 계속 증가하고 GC 이후에도 잘 떨어지지 않는다.  
+  → 캐시, 전역 맵, 요청 단위 데이터 보관, 슬라이스 참조 유지 같은 Go heap 누수를 의심한다.
+
+- `gc_heap_live.bytes`는 낮은데 `working_set`이나 `rss`가 높다.  
+  → cgo/native memory, mmap, page cache, goroutine stack, 외부 라이브러리 메모리를 의심한다.
+
+- `working_set`이 container memory limit에 가까워진다.  
+  → Go heap 문제가 아니더라도 OOMKill 위험이 있다.
+
+- `GOMEMLIMIT` 근처에서 GC pause나 GC CPU가 증가한다.  
+  → 메모리 예산이 빡빡해서 GC가 자주 도는 상태일 수 있다.
 
 ## GC가 하는 일
 
