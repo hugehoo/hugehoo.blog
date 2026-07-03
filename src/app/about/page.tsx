@@ -54,16 +54,6 @@ const About = async () => {
                   </a>
                 </li>
                 <li>
-                  <a
-                    className={anchorProperty}
-                    href="https://github.com/hugehoo/tidify-be"
-                  >
-                    IOS APP
-                  </a>{' '}
-                  의 서버 개발을 담당하여 1년간 운영한 경험이 있습니다. (2023.05
-                  ~ 2024.04)
-                </li>
-                <li>
                   2022 Junction Asia 해커톤{' '}
                   <a
                     className={anchorProperty}
