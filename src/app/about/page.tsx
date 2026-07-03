@@ -54,16 +54,6 @@ const About = async () => {
                   </a>
                 </li>
                 <li>
-                  테크 블로그의 Read/Write 를 좋아하여{' '}
-                  <a
-                    className={anchorProperty}
-                    href="https://blog-scrapper-ui.vercel.app/"
-                  >
-                    테크 블로그 스크래퍼
-                  </a>
-                  라는 서비스를 운영중입니다. (2024.09 ~ )
-                </li>
-                <li>
                   <a
                     className={anchorProperty}
                     href="https://github.com/hugehoo/tidify-be"
