@@ -1,0 +1,160 @@
+---
+title: 'grpc-go: outlier detection 테스트를 E2E로 바꾼 이유'
+date: 2026-07-26
+desc: '내부 구현에 의존하지 않는 테스트 작성하기'
+thumbnail:
+category: grpc
+open: true
+---
+
+- 🔗 https://github.com/grpc/grpc-go/pull/9252
+
+
+grpc-go의 outlier detection 테스트를 E2E 방식으로 수정하여 contribute 했다.
+
+이 작업은 [Issue #8658](https://github.com/grpc/grpc-go/issues/8658)의 일부다. 테스트가 내부 구현에 직접 의존하는 것을 제거하는 작업으로, 테스트 파일을 E2E 테스트 디렉터리로 옮기는 작업 정도로 생각했다. 실제로는 파일 위치뿐 아니라 테스트가 내부 timer와 balancer 인스턴스를 직접 조작하는 방식까지 바꿔야 했다.
+
+## 사전 지식
+**outlier detection**은 비정상 엔드포인트를 감지해 일정 시간 트래픽 대상에서 제외하는 클라이언트 측 load-balancing policy다. ([ref: A50](https://github.com/grpc/proposal/blob/master/A50-xds-outlier-detection.md)) 
+일반적인 health check를 보내는 것이 아닌, 실제 RPC 결과를 관찰하는 passive health checking 이다.
+- 대략적인 동작은 아래와 같다.
+> 1. lb가 선택한 subbConn(connection)으로 RPC를 호출.
+> 2. RPC가 호출되면 성공/실패 횟수를 endpoint별로 기록.
+> 3. interval마다 통계를 평가.
+> 4. 다음 조건 중 설정된 알고리즘으로 outlier를 찾는다.
+>    - successRateEjection: 다른 endpoint보다 성공률이 통계적으로 낮은가?
+>    - failurePercentageEjection: 실패율이 설정된 threshold보다 높은가?
+> 5. outlier endpoint를 baseEjectionTime 동안 eject.
+> 6. 반복해서 eject되면 제외 시간을 늘리되 maxEjectionTime으로 제한.
+
+## 검증하려던 동작
+
+기존 테스트(`TestPickFirstHealthListenerDisabled`)의 동작을 이해하려면 gRPC client가 요청을 보내는 흐름부터 봐야 한다.
+클라이언트는 `ClientConn`이라는 channel을 만들고 resolver가 찾은 backend 주소 중 하나를 load-balancing policy가 고른다. 선택된 주소의 실제 연결은 `SubConn`이 관리한다.
+
+```text
+애플리케이션
+  ↓ RPC 호출
+ClientConn (channel)
+  ↓ resolver가 backend 주소 제공
+load-balancing policy
+  ↓ 하나의 주소 선택
+SubConn
+  ↓ transport 연결
+backend
+```
+
+transport가 연결되면 channel은 `READY` 상태가 된다.
+>  - `READY`: RPC를 보낼 transport 연결이 준비된 상태
+>  - RPC 성공: 서버 메서드가 오류 없이 끝난 상태
+
+channel이 `READY` 상태, 즉 remote server 프로세스와 TCP/HTTP2 transport 연결은 유지돼도 서버의 RPC handler는 계속 오류를 반환할 수 있다.
+connection 관점에서 `READY`라도 애플리케이션 관점에서는 해당 endpoint가 요청을 정상 처리하지 못하는 상태다. outlier detection은 이런 RPC 실패 통계를 근거로 endpoint를 ejection 대상으로 판단할 수 있다.
+
+이번 PR의 테스트는 RPC가 실패해도 transport 연결은 살아 있을 수 있는 점을 확인한다.
+outlier detection은 RPC 실패를 endpoint 평가에 사용하지만 그 판단만으로 channel의 연결 상태를 `TRANSIENT_FAILURE`로 바꾸면 안 된다.
+
+## outlier detection과 pick_first의 역할
+RPC가 종료되면 outlier detection은 해당 RPC가 처리한 SubConn과 `DoneInfo.Err`를 확인한다.
+오류가 없으면 성공, 오류가 있으면 실패로 기록하고 설정한 `interval`마다 통계를 평가한다.
+
+테스트의 `TestService/EmptyCall`은 실패 표본을 만들기 위한 fixture로, 빈(empty) 호출을 반복하고 일정한 `interval`마다 성공률과 실패율을 계산하여 비정상으로 판단한 endpoint를 일정 시간 ejection한다.
+
+```text
+RPC 완료
+  ↓
+endpoint별 성공/실패 기록
+  ↓ interval마다 통계 평가
+비정상 endpoint ejection
+```
+
+`outlier_detection_experimental`은 어느 endpoint가 비정상인지 판단하고 `pick_first`는 연결 가능한 첫 address를 선택한다.
+
+예를 들어 resolver가 `A`, `B`, `C` 세 backend 주소를 전달했다고 하자. `pick_first`는 먼저 A와 연결을 시도한다.
+A의 transport가 `READY`가 되면 이후 RPC는 모두 A로 보낸다. A의 transport 연결이 실제로 실패하면 `pick_first`는 다음 주소 B를 시도한다.
+`round_robin`처럼 RPC마다 A, B, C를 번갈아 고르지는 않는다.
+
+```text
+resolver: [A, B, C]
+             ↓
+pick_first: A 연결 시도
+             ↓
+A가 READY: 이후 RPC는 A로 전송
+A 연결 실패: B 연결 시도
+```
+
+outlier detection이 내부적으로 endpoint를 ejection 대상으로 판단하더라도 그 결과가 `pick_first`에 전달되지 않으며, 실제 transport 연결 상태는 계속 `READY`로 유지되어야 한다.
+
+## 기존 테스트가 내부 구현을 알아야 했던 이유
+
+기존 테스트는 실제 backend에 실패 RPC를 보냈고, 검증하려던 결과 역시 “outlier detection이 동작한 뒤에도 channel이 `READY`를 유지하는가”였다.
+다만 outlier detection은 RPC가 끝나는 즉시 ejection을 계산하지 않는다. RPC 결과를 **endpoint별 counter에 쌓아 두고**, `interval`이 지났을 때 timer가 counter를 교체한 뒤 ejection 알고리즘을 실행한다.
+
+기존 테스트에는 intervals를 `300s`로 세팅했는데 디폴트 interval이 300초라서가 아니라, 테스트 중 실제 timer가 자동으로 실행되지 않도록 interval을 의도적으로 300초로 설정했다. 이후 private 메서드를 직접 호출해 outlier detection 분석을 실행했다.
+반대로 interval을 너무 짧게 두면 필요한 실패 counter가 쌓이기 전에 timer가 실행돼 테스트 결과가 실행 시점에 따라 달라질 수 있다.
+참고로 여기서 말하는 `timer`는 **RPC 실패 통계를 일정 주기마다 평가하기 위한 Go 내부 스케줄러를** 의미한다.
+
+정리하면:
+1. interval을 `300s`로 설정해 timer가 테스트 중 자동 실행되지 않게 한다.
+2. 실패 RPC를 필요한 만큼 호출해 counter를 채운다.
+3. timer를 기다리는 대신 private 메서드 `intervalTimerAlgorithm()`을 직접 호출한다.
+4. ejection 알고리즘이 끝난 뒤 channel 상태를 확인한다.
+
+```go
+od.intervalTimerAlgorithm() // timer 기다리는 대신 직접 timer 호출
+```
+
+private 메서드를 호출하려면 테스트가 `*outlierDetectionBalancer` 포인터를 얻어야 하는데, production code에서 `grpc.NewClient()`가 만든 balancer는 외부 API로 노출되지 않는다. 그렇기 때문에 기존 테스트는 `bf`라는 `stub.BalancerFuncs` 값을 실제 balancer가 아니라 테스트용 builder/factory로 사용했다.
+
+`bf`를 테스트 전용 policy 이름으로 registry에 등록하고, service config가 그 policy를 선택하도록 만들었다.
+![1.png](/1.png)
+
+```text
+bf: 테스트용 builder/factory
+  ↓ stub.Register(t.Name(), bf)
+service config: t.Name() policy 선택
+  ↓ ClientConn이 stub의 Init 호출
+stub Init
+  ↓ 실제 outlierDetectionBalancer 생성
+테스트가 포인터를 전달받아 intervalTimerAlgorithm() 호출
+```
+
+stub은 outlier detection 알고리즘을 대체하지 않았다. `Init`에서 실제 `outlierDetectionBalancer`를 만들고 concrete 포인터와 테스트용 `LBConfig`을 넘기는 test hook 역할만 했다.
+
+이 방식은 테스트를 빠르고 결정적으로 만든 대신 **timer callback 이름이나 balancer 생성 경로가 바뀌면 production 동작이 그대로여도 테스트를 함께 고쳐야 했다.**
+
+## 실제 gRPC 경로로 바꾸기
+
+PR에서 변경된 사항은 `outlier_detection_experimental`과 `pick_first`를 직접 설정하고, `grpc.NewClient()`로 `ClientConn`을 만든다. 생성된 client가 해당 channel로 실제 RPC를 호출한다.
+
+```go
+cc, err := grpc.NewClient(target, opts...)
+if err != nil {
+    t.Fatal(err)
+}
+defer cc.Close()
+
+client := testgrpc.NewTestServiceClient(cc)
+for range 10 {
+    _, _ = client.EmptyCall(ctx, &testpb.Empty{})
+}
+```
+
+> - `ClientConn`은 resolver, service config, balancer, SubConn과 connectivity를 관리하는 gRPC channel
+> - `testgrpc.NewTestServiceClient()`는 새 연결이나 balancer를 만들지 않는 typed client stub이다. `EmptyCall()`은 결국 같은 `ClientConn`의 RPC 경로로 들어감.
+
+새 테스트는 interval을 `50ms`로 설정했다.
+실패 RPC를 10번 호출한 뒤, 약 세 번의 interval(`50ms * 3`) 동안 channel이 `READY`인지 확인한다.
+
+이전까지는 stub에 의존한 balancer를 사용하여 private method인 `intervalTimerAlgorithm()`을 직접 호출해야 했지만, 변경된 테스트에서는 실제 service config와 ClientConn 경로를 사용한다. 따라서 interval 설정에 따라 timer가 예약되고 RPC도 outlier_detection_experimental의 child policy인 pick_first picker를 거쳐 실제 backend로 전달된다. 테스트가 private timer 메서드를 직접 호출할 필요가 없어졌다.
+
+## PR이 변경하지 않은 것
+
+이번 PR은 
+[Issue #8658](https://github.com/grpc/grpc-go/issues/8658)에서 언급한 대로 내부 구현에 강하게 결합된 테스트를 가능한 범위에서 E2E 스타일로 옮기는 작업 중 하나다.
+
+새로운 API 추가나 production 코드 변경은 없었다.
+
+모든 종류의 테스트를 E2E로 바꿔야 하는 것은 아니다. 이번 경우 기존 테스트가 검증하고자 한 것은 private method 호출이 아닌 channel connectivity의 경계였기 때문에, 실제 client가 보는 동작이 더 적절한 관찰 지점이었다.
+
+테스트가 내부 상태를 디테일하게 검증할수록 구현 변경은 어려워진다. 반대로 사용자가 실제로 보는 동작을 테스트하면 내부 구조는 변경할 여지를 남길 수 있다. 이번 PR은 timer를 직접 호출하지 않는 작은 변경으로 그 차이를 보여준다.
