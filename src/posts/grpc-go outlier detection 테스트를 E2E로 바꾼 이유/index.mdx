@@ -16,8 +16,7 @@ grpc-go testing 부분에 새롭게 기여한 내용을 기록. <br/>
 
 ## 검증하려던 동작
 
-기존 테스트(`TestPickFirstHealthListenerDisabled`) 동작을 이해하려면 gRPC client가 요청을 보내는 경로부터 봐야한다.
-
+기존 테스트(`TestPickFirstHealthListenerDisabled`) 동작을 이해하려면 gRPC client가 요청을 보내는 흐름부터 봐야한다.
 클라이언트는 `ClientConn`이라는 channel을 만들고 resolver가 찾은 backend 주소 중 하나를 load-balancing policy가 고른다. 선택된 주소의 실제 연결은 `SubConn`이 관리한다.
 
 ```bash
@@ -32,38 +31,15 @@ SubConn
 backend
 ```
 
-여기서 먼저 구분할 것이 있다. channel이 `READY`라는 사실과 RPC가 성공했다는 사실은 다르다.
+transport가 연결되면 channel은 `READY` 상태가 된다.
+>  - `READY`: RPC를 보낼 transport 연결이 준비된 상태
+>  - RPC 성공: 서버 메서드가 오류 없이 끝난 상태
 
-- `READY`: RPC를 보낼 transport 연결이 준비된 상태
-- RPC 성공: 서버 메서드가 오류 없이 끝난 상태
-
-remote server 프로세스와 TCP/HTTP2 transport 연결은 살아 있어도, 서버의 RPC handler가 계속 오류를 반환할 수 있다.
-
-이 경우 connection 관점에서는 `READY`지만, 애플리케이션 관점에서는 해당 endpoint가 요청을 정상 처리하지 못하는 상태다.
+channel이 `READY` 상태, 즉 remote server 프로세스와 TCP/HTTP2 transport 연결은 살아 있어도 서버의 RPC handler는 계속 오류를 반환할 수 있다. connection 관점에서는 `READY`지만 애플리케이션 관점에서는 해당 endpoint가 요청을 정상 처리하지 못하는 상태이기 때문에 `outlierdetection`은 해당 엔드포인트를 eject 대상으로 삼는다.
 
 outlier detection은 transport 연결 단절만 감지하는 기능이 아니다.
 
-별도 ping이나 임의의 health-check RPC를 보내지 않고, 애플리케이션이 실제로 호출한 RPC 결과를 endpoint별로 관찰해 비정상 endpoint를 찾는다.
-
-그래서 RPC 실패율이 높으면 해당 endpoint를 일정 시간 논리적으로 ejection할 수 있다.
-
-ejection은 connection을 끊는 일이 아니라, load balancer가 해당 endpoint를 당분간 선택하지 않도록 하는 조치다.
-
-정상 endpoint가 여러 개라면 load balancer는 실패하는 endpoint를 제외하고 다른 endpoint로 트래픽을 보낼 수 있다.
-
-실제 connection 상태와 애플리케이션 수준의 endpoint 평가는 이처럼 서로 다른 층위의 정보다.
-
-이 테스트의 service config는 `outlier_detection_experimental` 아래에 `pick_first`를 child policy로 둔다.
-
-이 구성에서는 resolver가 `pick_first`에 health listener 사용을 요청하는 attribute를 전달하지 않는다.
-
-health listener는 outlier detection이 endpoint를 ejection했을 때, 그 endpoint를 일시적으로 제외하라는 health 신호를 child policy에 전달하는 통로다.
-
-listener를 등록한 `pick_first`는 이 신호를 받아 transport가 살아 있어도 해당 SubConn을 사용 대상에서 제외할 수 있다.
-
-하지만 이 테스트처럼 listener가 없는 구성에서는 ejection 판단이 raw transport connectivity를 바꾸면 안 된다.
-
-따라서 오류 RPC가 반복되어도, 실제 transport 실패가 아닌 이유로 channel connectivity가 `TRANSIENT_FAILURE`(일시 실패)로 바뀌지 않는지 확인한다.
+RPC 오류가 반복되어도 실제 transport 실패가 아닌 이유로 channel connectivity가 `TRANSIENT_FAILURE`(일시 실패)로 바뀌지 않는지 확인한다.
 
 테스트 코드에서 test server는 연결 자체를 받아들이지만 모든 RPC에 오류를 반환한다.
 그래서 RPC 호출은 실패해도 transport가 살아 있으면 channel은 `READY`일 수 있다.
@@ -167,9 +143,9 @@ stub은 outlier detection 알고리즘을 대체하지 않았다. `Init`에서 �
 
 ## 실제 gRPC 경로로 바꾸기
 
-이번 PR에서 바꾼 테스트는 balancer instance를 꺼내지 않는다.
+<!--이번 PR에서 변경한 테스트는 balancer instance를 꺼내지 않는다.-->
 
-JSON service config에 `outlier_detection_experimental`과 `pick_first`를 직접 설정하고, `grpc.NewClient()`로 `ClientConn`을 만든다. 그리고 생성된 client가 해당 channel을 통해 실제 RPC를 호출하게 한다.
+PR에서 변경된 사항은 `outlier_detection_experimental`과 `pick_first`를 직접 설정하고, `grpc.NewClient()`로 `ClientConn`을 만든다. 그리고 생성된 client가 해당 channel을 통해 실제 RPC를 호출하게 한다.
 
 ```go
 cc, err := grpc.NewClient(target, opts...)
@@ -184,17 +160,15 @@ for range 10 {
 }
 ```
 
-`grpc.NewClient()`의 결과인 `ClientConn`은 resolver, service config, balancer, SubConn과 connectivity를 관리하는 gRPC channel이다.
+`grpc.NewClient()`의 결과인 `ClientConn`은 resolver, service config, balancer, SubConn과 connectivity를 관리하는 gRPC channel이다. 반면 `testgrpc.NewTestServiceClient(cc)`는 새 연결이나 balancer를 만들지 않는 typed client stub이다. `EmptyCall()`은 결국 같은 `ClientConn`의 RPC 경로로 들어간다.
 
-반면 `testgrpc.NewTestServiceClient(cc)`는 새 연결이나 balancer를 만들지 않는 typed client stub이다. `EmptyCall()`은 결국 같은 `ClientConn`의 RPC 경로로 들어간다.
+새 테스트는 interval을 `50ms`로 설정한다. 실패 RPC를 10번 호출한 뒤, 약 세번의 interval(`150ms`) 동안 channel이 계속 `READY`인지 확인한다.
 
-새 테스트는 interval을 `50ms`로 설정한다. 실패 RPC를 10번 호출한 뒤, 약 세 interval인 `150ms` 동안 channel이 계속 `READY`인지 확인한다.
-
-실제 timer와 실제 picker가 모두 동작하므로 `intervalTimerAlgorithm()`의 존재나 호출 방법을 테스트가 알 필요가 없다.
+이전까지는 stub에 의존한 balancer를 사용했기 때문에 직접 private method인 `intervalTimerAlgorithm()`를 호출해야만 했지만, 변경된 테스트에서는 실제 timer와 실제 picker가 모두 동작하므로 `intervalTimerAlgorithm()`의 존재나 호출 방법을 몰라도 된다. 구현은 내부로 감춘 셈이다.
 
 ## PR이 변경하지 않은 것
 
-이번 PR은 outlier detection 알고리즘이나 `pick_first`의 health listener 동작을 수정하지 않았다. <br/>
+이번 PR은 
 [issue #8658](https://github.com/grpc/grpc-go/issues/8658)에서 언급한대로 내부 구현에 강하게 결합된 테스트를 가능한 범위에서 E2E 스타일로 옮기는 작업 중 하나로, 새로운 API 추가나 production 코드 변경도 없었다.
 
 모든 종류의 테스트를 E2E로 바꿔야 하는 것은 아니다. 이번 경우 기존 테스트가 검증하려던 결과는 private method 호출 자체가 아니라 channel connectivity의 경계였기 때문에, 실제 client가 보는 동작이 더 적절한 관찰 지점이었다.
