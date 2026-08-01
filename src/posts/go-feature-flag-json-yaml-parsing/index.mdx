@@ -10,14 +10,16 @@ open: false
 ## 세 줄 요약
 
 1. [TODO: Pyroscope에서 관측한 YAML parser의 CPU 비중과 발견 배경]
-2. [TODO: Redis가 반환한 JSON을 YAML로 파싱하던 원인과 내부 해결]
+2. [TODO: Redis가 반환한 JSON을 YAML로 파싱하던 원인과 서비스 측 해결]
 3. [TODO: 전역 설정의 한계를 optional FormatHinter로 일반화한 업스트림 기여]
 
-## 630M CPU cycle을 사용하던 낯선 함수
+## 프로파일 상위에 나타난 낯선 YAML 함수
 
-[TODO: PR #6698로 Pyroscope CPU profile 수집 환경을 만든 배경을 한 문단으로 설명한다.]
+[TODO: 내부 관측 인프라 작업으로 Pyroscope CPU profile 수집 환경을 만든 배경을 한 문단으로 설명한다.]
 
-[TODO: 특정 profile 조회 구간에서 `gopkg.in/yaml.yaml_parser_state_machine`이 약 630M CPU cycles, 전체의 약 4%로 관측된 장면을 설명한다. 조회 범위와 대상 pod 수를 확인해 함께 적는다.]
+[TODO: 당시 작업 기록에는 `gopkg.in/yaml.yaml_parser_state_machine`이 약 630M, 전체의 약 4%로 적혀 있다.]
+
+[TODO: raw profile에서 조회 범위, profile type과 unit, selector, 대상 pod 수를 확인하기 전에는 `cycles`라고 쓰지 않는다. 원본을 찾지 못하면 “당시 작업 기록의 관측”으로 귀속한다.]
 
 > Feature Flag 데이터는 Redis에서 JSON으로 가져오는데, 왜 YAML parser가 CPU profile 상위에 나타났을까?
 
@@ -25,12 +27,12 @@ open: false
 
 ## YAML parser까지 호출 경로를 따라가 보기
 
-```text
-Redis Hash
+```bash
+Redis keys (`configured prefix + "*"`)
     │
     ▼
-Redis Retriever
-    │ json.Marshal
+SCAN + GET
+    │ 각 값 json.Unmarshal, 전체 map json.Marshal
     ▼
 JSON bytes
     │ global FileFormat (empty)
@@ -43,14 +45,16 @@ Feature Flag DTO
 
 [TODO: Redis retriever의 `json.Marshal`, 빈 FileFormat의 YAML default 분기, ConvertToFlagStruct 호출부를 코드 스니펫과 함께 설명한다.]
 
-[TODO: 이 파싱은 매 evaluation 요청이 아니라 60초 polling으로 Redis 데이터를 읽어 로컬 캐시를 갱신하는 경로에서 발생했다는 점을 명시한다.]
+[TODO: 이 파싱은 매 evaluation 요청이 아니라 초기화와 polling 때 로컬 캐시를 갱신하는 경로에서 발생했다는 점을 명시한다.]
+
+[TODO: 설정값은 60초지만 polling jitter가 활성화돼 실제 주기는 약 54~66초였다.]
 
 ## 잘못된 파서인데 왜 실패하지 않았을까
 
 [TODO: YAML 1.2가 JSON 호환성을 목표로 하며 JSON object/array가 YAML flow style로 해석될 수 있음을 작은 예제로 설명한다.]
 
 ```json
-{"name": "buzzvil", "tags": ["ad", "reward"]}
+{"name": "example", "tags": ["feature", "flag"]}
 ```
 
 [TODO: 파싱 에러도 없고 evaluation 결과도 정상이라 profile을 보기 전까지 발견하기 어려웠다는 점을 설명한다.]
@@ -79,11 +83,13 @@ ffConfig := ffclient.Config{
 }
 ```
 
-[TODO: 내부 PR #6732의 변경, prodmini 검증, 기존 테스트 회귀 확인을 설명한다.]
+[TODO: 설정 한 줄 변경, 검증 환경 rollout, 기존 테스트 회귀 확인을 승인된 범위에서 설명한다.]
 
-```text
-Redis Hash
-    │ json.Marshal
+```bash
+Redis keys (`configured prefix + "*"`)
+    │ SCAN + GET
+    ▼
+각 값 json.Unmarshal, 전체 map json.Marshal
     ▼
 JSON bytes
     │ FileFormat: "json"
@@ -96,20 +102,24 @@ Feature Flag DTO
 
 ## 4%를 줄였다고 말해도 될까
 
-[TODO: before profile에서 YAML parser가 약 4%였다는 사실과 after 전체 CPU 개선율을 분리한다.]
+[TODO: 당시 기록의 before 관측과 after 전체 CPU 개선율을 분리한다. raw before profile이 없으므로 약 4%를 독립 검증된 수치로 표현하지 않는다.]
 
-[TODO: 변경 후 동일 조건 profile이 없다면 “전체 CPU cycle의 약 4%를 차지하던 YAML parsing 경로를 제거했다”고만 결론 내린다.]
+[TODO: 최근 after-only profile에서는 `ConvertToFlagStruct → encoding/json.Unmarshal`만 보이고 YAML symbol은 없었다. 이는 경로 확인이며 개선율 근거가 아니다.]
+
+[TODO: 변경 후 동일 조건 profile이 없다면 “JSON을 YAML로 해석하던 경로를 제거했다”고만 결론 내린다.]
 
 [TODO: benchmark나 사후 profile 없이 2~3배 개선, 630M → 200~300M, 서비스 CPU 4% 감소를 단정하지 않는다.]
 
 ## 이 한 줄을 라이브러리의 기본값으로 만들 수 없는 이유
 
-[TODO: buzzscreen-api는 Redis retriever 하나만 사용하므로 전역 JSON 설정으로 충분했지만, 라이브러리는 원본 파일 포맷을 전달하는 retriever도 지원한다는 차이를 설명한다.]
+[TODO: 대상 서비스는 Redis retriever 하나만 사용하므로 전역 JSON 설정으로 충분했다.]
+
+[TODO: PR #5322 시점의 라이브러리는 File/HTTP처럼 원본 bytes를 전달하는 retriever도 지원했다는 차이를 설명한다.]
 
 | Retriever | 반환 포맷 특성 | 전역 JSON 강제 가능 여부 |
 |---|---|---|
 | Redis / MongoDB / PostgreSQL | 항상 JSON | 가능 |
-| File / HTTP / S3 / GitHub 등 | 사용자의 원본 포맷 | 불가능 |
+| File / HTTP 등 | 사용자의 원본 포맷 | 불가능 |
 
 [TODO: default를 JSON으로 변경, manager의 구체 타입 검사, 사용자 설정 강제가 각각 갖는 문제를 비교한다.]
 
@@ -142,16 +152,17 @@ func getOutputFormat(r Retriever, fileFormat string) string {
 
 [TODO: TOML payload, global YAML, retriever TOML hint를 충돌시켜 manager가 hint를 실제 parser 선택에 사용하는지 검증한 테스트를 설명한다.]
 
-[TODO: 빈 hint의 fallback과 Redis/MongoDB/PostgreSQL의 JSON 선언 테스트를 설명한다.]
+[TODO: manager 테스트는 빈 hint의 fallback과 실제 parser 우선순위를 검증하고, Redis/MongoDB/PostgreSQL 테스트는 JSON 선언값을 검증한다는 범위를 구분한다.]
 
 ## 서비스의 한 줄에서 오픈소스 설계까지
 
 1. 2026-05-15: Pyroscope 수집 환경 구축
-2. 2026-05-19: 내부 서비스에 JSON FileFormat 명시
+2. 2026-05-19: 서비스에 JSON FileFormat 명시
 3. 2026-05-23: 업스트림 Issue와 PR 작성
 4. 2026-05-28: `FormatHinter` 변경 머지
+5. 2026-06-04 KST: v1.54.0에 최초 포함
 
-[TODO: 관측 가능성, 내부 workaround와 범용 해법의 차이, 데이터 정보의 소유권이라는 세 가지 교훈으로 마무리한다.]
+[TODO: 관측 가능성, 서비스 workaround와 범용 해법의 차이, 데이터 정보의 소유권이라는 세 가지 교훈으로 마무리한다.]
 
 > 프로덕션에서 발견한 한 줄짜리 설정 누락은, 결국 라이브러리에서 데이터 포맷의 책임을 어디에 둘 것인가라는 설계 문제로 이어졌다.
 
@@ -159,6 +170,7 @@ func getOutputFormat(r Retriever, fileFormat string) string {
 
 - [go-feature-flag Issue #5321](https://github.com/thomaspoignant/go-feature-flag/issues/5321)
 - [go-feature-flag PR #5322](https://github.com/thomaspoignant/go-feature-flag/pull/5322)
+- [go-feature-flag v1.54.0](https://github.com/thomaspoignant/go-feature-flag/releases/tag/v1.54.0)
 - [YAML 1.2.2 Specification](https://yaml.org/spec/1.2.2/)
-- [go-yaml v3 Decode implementation](https://github.com/go-yaml/yaml/blob/v3/yaml.go)
+- [go-yaml v3.0.1 Decode implementation](https://github.com/go-yaml/yaml/blob/v3.0.1/yaml.go#L156-L166)
 - [Go encoding/json](https://pkg.go.dev/encoding/json)
