@@ -109,7 +109,6 @@ Pyroscope에서 `gopkg.in/yaml.yaml_parser_state_machine`이 높은 CPU 비중�
 | P0 | 비교 가능한 after profile | 당시 자료는 보존 범위 밖 | 같은 workload와 payload로 재현하거나, 수치 비교를 포기하고 경로 제거만 서술 |
 | P0 | 내부 정보 공개 범위 | 미확인 | 서비스명, 변경 기록, 코드, profile 이미지별 공개 승인 |
 | P1 | 실제 규모 benchmark용 payload 규모 | 미확보 | 정량 benchmark를 게재할 때만 flag 수와 byte 수 확보. 원문은 저장하거나 커밋하지 않음 |
-| P1 | parser microbenchmark | 실행 scaffold 준비 완료, 실제 규모 미반영 | 실제 flag 수·byte 수로 10회 측정하고 환경과 원시 결과 기록 |
 | P1 | 기능 검증 근거 | 변경 기록의 체크리스트만 존재 | 익명화한 flag의 입력·기대값·실제값·배포 ref·시각 확보 |
 | P2 | 시각 자료 | 미제작 | 승인된 before 화면, 데이터 흐름, workaround/FormatHinter 비교 제작 |
 
@@ -197,37 +196,9 @@ jq '{
 
 ### JSON/YAML parser benchmark
 
-실행 코드는 `benchmark/`의 독립 Go module에 준비했다. 같은 JSON bytes를 단순화한 flag DTO로 decode하는 parser-only synthetic benchmark다.
+본문에는 parser 배수나 synthetic benchmark 수치를 싣지 않는다. 실제 payload 규모 없이 만든 수치는 서비스 개선 효과로 해석하기 어렵기 때문에 benchmark 코드도 PR에서 제외한다.
 
-실제 `ConvertToFlagStruct`나 서비스 전체 CPU를 재현하지 않으므로 결과를 서비스 개선율로 외삽하지 않는다.
-
-정량 benchmark를 싣는다면 먼저 실제 집계값 `N`과 `B`로 두 parser가 같은 구조를 만드는지 확인한다.
-
-```bash
-cd src/posts/go-feature-flag-json-yaml-parsing/benchmark
-
-GOTOOLCHAIN=go1.24.10 go test \
-  -run '^TestJSONPayloadDecodesWithBothParsers$' \
-  -count=1 \
-  -v \
-  -args -flags=N -bytes=B
-```
-
-그다음 단일 CPU 조건에서 10회 측정한다.
-
-```bash
-GOTOOLCHAIN=go1.24.10 go test \
-  -run '^$' \
-  -bench '^BenchmarkDecode$' \
-  -benchmem \
-  -benchtime=3s \
-  -count=10 \
-  -cpu=1 \
-  -args -flags=N -bytes=B \
-  | tee /tmp/goff-parser-benchmark.txt
-```
-
-실제 승인·익명화 payload를 쓸 때는 `-flags/-bytes` 대신 `-payload=/tmp/...`를 사용한다. 결과에는 `go version`, OS/architecture, CPU 모델, payload의 flag 수·bytes, `ns/op`, `B/op`, `allocs/op`를 남긴다.
+나중에 정량 비교가 필요해지면 실제 flag 수와 byte 크기를 먼저 집계하고, 저장소 밖의 별도 실험에서 같은 payload를 두 parser로 측정한다.
 
 ## 상세 목차
 
@@ -393,9 +364,7 @@ type FormatHinter interface {
 - [ ] 변경 전 profile의 raw data, 조회 시간 범위, unit, selector, 대상 pod 수
 - [x] 과거 profile 보존 여부 확인 — 허가된 endpoint들에 series 없음
 - [x] 현재 after-only profile 수집 — 비교 효과가 아닌 경로 확인용
-- [ ] 정량 benchmark 게재 시 당시 flag payload byte 크기와 flag 개수
-- [x] JSON/YAML parser benchmark scaffold 추가
-- [ ] 실제 payload 규모로 benchmark 10회 실행
+- [x] 실제 payload 규모가 없어 정량 benchmark 수치와 실행 코드를 본문에서 제외
 - [ ] 내부 서비스명, PR 링크, profile 이미지의 외부 공개 가능 여부 확인
 - [ ] 현재 공개 글인 `Feature Flag API의 p99 레이턴시 개선`과 중복 설명 최소화
 
