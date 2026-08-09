@@ -1,128 +1,114 @@
 ---
-title: 'JSON인데 YAML로 파싱하고 있었다'
+title: 'feature-flag 누락된 설정 한줄로 성능 개선에서 오픈소스 기여까지'
 date: 2026-08-01
-desc: 'Pyroscope에서 발견한 YAML 파싱 병목과 서비스의 한 줄 수정에서 go-feature-flag 기여까지'
+desc: 'go-feature-flag 또 기여해버렸지 모얌'
 thumbnail:
 category: go
 open: true
 ---
 
-## 세 줄 요약
+## 네 줄 요약
 
-1. prod CPU profile에서 Feature Flag 갱신 경로의 YAML parser가 전체 CPU의 약 4%를 차지하고 있었습니다.
-2. Redis retriever가 만든 JSON을 YAML로 다시 읽은 원인은 비어 있던 `FileFormat`이었습니다. 서비스에서는 `FileFormat: "json"` 한 줄로 경로를 바로잡았습니다.
-3. 배포 후 prod 6개 pod 표본에서는 YAML 함수가 검출되지 않았고 대응하는 JSON 변환 경로는 약 0.003%였습니다. 이 문제를 일반화한 `FormatHinter`도 go-feature-flag에 기여했습니다.
+1. prod CPU profile에서 Feature Flag의 YAML parser가 전체 CPU의 약 4%를 차지
+2. Redis retriever가 생성한 JSON을 YAML로 파싱하는 병목 지점 파악 후 올바른 파서가 동작하도록 조치
+3. 배포 후 prod 6개 pod 표본에서는 YAML 함수가 검출되지 않았고 JSON 변환 경로는 약 0.003%로 확인
+4. 위 문제를 일반화한 `FormatHinter` 추가하여 **go-feature-flag 오픈소스 기여**
 
-## 프로파일에 나타난 낯선 YAML 함수
+## profile에 나타난 YAML 함수
 
-2026년 5월, 서비스의 CPU profile을 Pyroscope에서 볼 수 있도록 수집 환경을 정리했습니다. 얼마 지나지 않아 낯선 함수 하나가 눈에 들어왔습니다.
-
-`gopkg.in/yaml.yaml_parser_state_machine`이었습니다. 당시 prod profile 분석 기록에는 이 함수가 전체 CPU의 약 4%를 차지한다고 적혀 있었습니다.
-
-변경 전 profile 원본은 보존 기간이 지나 다시 계산할 수 없습니다. 이 글의 `4%`는 당시 prod profile을 보고 남긴 수치입니다. 정확한 sample 단위와 pod 범위까지 복원한 값은 아닙니다.
-
-그런데 서비스는 Feature Flag를 Redis에서 JSON으로 읽고 있었습니다. 설정과 데이터 어디에도 YAML을 쓸 이유가 없어 보였습니다.
-
-> JSON으로 가져온 데이터가 왜 YAML parser를 지나고 있을까?
-
-에러는 없었고 Feature Flag 평가 결과도 정상이었습니다. 기능만 봤다면 지나쳤을 문제였습니다. CPU profile에는 성공한 코드가 치른 비용까지 남아 있었습니다.
+사내 pyroscope로 메인 서버 성능을 파악하던 중 규모가 크진 않지만 병목을 차지하는 함수(`gopkg.in/yaml.yaml_parser_state_machine`)를 발견했다.
+당시 profiling 기록에는 해당 함수가 전체 CPU의 **약 4%, ~630M CPU cycles**를 먹고 있었다.
+`yaml`의 사용처는 k8s 설정 파일 외에는 당장 떠오르는 사용처가 없었고, 그렇기 때문에 전체 cpu clock의 4%나 차지하는게 의심스러웠다. 해당 함수의 call stack을 타고 올라보니 go-feature-flag (이하 ff) 라이브러리의 `ConvertToFlagStruct()`에서 호출되고 있었다. (ff는 피쳐플래그 라이브러리로 플래그 데이터를 redis에 저장하고 주기적으로 polling 하는 식으로 동작한다) <br/>
+쉽게 말해 redis에 저장한 플래그 데이터를 구조체로 전환하는 함수로, JSON 데이터를 Go struct로 unmarshal 하는 단순 컨버트 함수였다. 그런데 여기서 웬 YAML이 나오는걸까? `ff` 설정 어디에도 YAML을 사용할 이유는 없어 보였다. 원인을 더 명확히 파악하기 위해 ff의 **retriever** 가 무엇인지 간단히 짚고 넘어가자.
 
 ## Redis부터 YAML parser까지 호출 경로를 따라가기
+ff의 retriever는 feature flag 설정을 외부 저장소에서 읽어 오는 어댑터를 의미한다. 
+우리 회사처럼 Redis에서 flag를 조회하면 **Redis retriever**, 로컬 파일을 읽을 땐(**File retriever**), HTTP 응답 사용 시(**HTTP retriever**)등 다양한 종류의 retriever가 존재한다.
+retriever는 외부 저장소에서 Feature Flag 데이터를 읽어 []byte로 반환하고, cache manager는 반환된 byte 데이터를 역직렬화해 Feature Flag 구조체로 변환한다.
 
-Redis retriever가 무엇을 반환하는지부터 따라갔습니다. 당시 사용하던 go-feature-flag v1.41.3은 prefix에 맞는 key를 `SCAN`한 뒤 값을 하나씩 `GET`합니다.
+``` text
+외부 저장소(redis, Mongo, Postgres etc)
+  ↓
+Retriever
+  ↓ []byte
+파서(JSON/YAML/TOML)
+  ↓
+Feature Flag 구조체
+  ↓
+Flag evaluation
+```
 
-retriever는 각 값을 `json.Unmarshal`로 읽습니다. 모은 flag map은 다시 `json.Marshal`해 `[]byte`로 반환합니다. 핵심만 남기면 이런 코드입니다.
+문제는 이 값을 로컬 캐시의 Feature Flag 구조체로 바꾸는 다음 단계에 있었다.
+당시 cache manager는 retriever 종류를 따지지 않고 전역 `Config.FileFormat`을 parser에 전달했다.
+`FileFormat`이 비어 있으면 `default` 분기의 `yaml.Unmarshal`을 호출했다.
 
-```go
-for _, key := range keys {
-    raw := redis.Get(key)
-    json.Unmarshal([]byte(raw), &flag)
-    flags[key] = flag
+![ff-ConvertToFlagStruct](/ff-ConvertToFlagStruct.png)
+
+인자로 fileFormat을 받도록 되어있으니 호출하는 곳에서 적절한 fileFormat만 넘겨주면 된다고 생각할 수 있지만, 이를 강제하지 않았고 default가 일종의 fallback 동작을 하여 문제가 없었다. 즉 fileFormat값을 명시적으로 넘기지 않으면 retriever가 JSON을 만들어도 YAML parser가 동작한다. 그럼 여기서 어떻게 JSON이 YAML Parser에서 동작하는지 의문이 생길 수 있다. 
+
+### Json이 YAML parser에서 동작한 이유
+기본적으로 **JSON은 YAML의 부분집합(subset)이다.** 
+[YAML 1.2 스펙](https://yaml.org/spec/1.2.2/)에서 공식적으로 이를 명시하고 있다.
+
+![ff-yaml1.2](ff-yaml1.2.png)
+
+YAML 1.2는 JSON 호환성을 중요한 목표로 삼았고 일반적인 JSON object와 array 표현은 YAML의 flow collection으로도 해석될 수 있다. 때문에 아래의 예시 json은 yaml parser에 의해 정상적으로 파싱된다.
+
+```yaml
+# Flow style (JSON과 동일한 문법)
+{
+  "name": "buzzvil",
+  "tags": [
+    "ad",
+    "reward"
+  ]
 }
 
-return json.Marshal(flags)
+# Block style (YAML 고유)
+name: buzzvil
+tags:
+  - ad
+  - reward
 ```
+부가 설명을 곁들이면, YAML의 `flow style`이 곧 JSON 문법이다.
+모든 valid JSON은 곧 valid YAML이 된다. YAML 파서가 정상적으로 읽을 수 있다는 의미지만 반대는 성립하지 않는다
+YAML의 `block style`, 앵커, 주석 등은 JSON 파서가 읽을 수 없다. JSON이 YAML의 서브셋이지 그 반대는 아니기 때문이다.
 
-여기까지는 예상대로 JSON입니다. 문제는 이 값을 로컬 캐시의 Feature Flag 구조체로 바꾸는 다음 단계에 있었습니다.
+## YAML parser가 CPU를 더 태운 이유
+다시 돌아가서 정리해보자. 
+정리하면 JSON이 YAML Parser에서도 정상적으로 파싱 된다는 의미인데, **ConvertToFlagStruct()이 CPU 병목으로 잡힌 이유는 무엇일까?**
 
-당시 cache manager는 retriever 종류를 따지지 않고 전역 `Config.FileFormat`을 parser에 전달했습니다. `FileFormat`이 비어 있으면 `default` 분기의 `yaml.Unmarshal`을 호출했습니다.
+JSON은 object, array, string, number처럼 비교적 제한된 문법을 처리하는 반면, YAML은 (JSON의 Super Set 답게)
+ block과 flow style, 들여쓰기, anchor, alias, tag, 여러 scalar 표현까지 고려해야 한다. 더 자세한 차이는 아래 표를 참고하시라. 
 
-```go
-switch fileFormat {
-case "json":
-    err = json.Unmarshal(data, &flags)
-case "toml":
-    err = toml.Unmarshal(data, &flags)
-default:
-    err = yaml.Unmarshal(data, &flags)
-}
-```
 
-서비스는 `FileFormat`을 지정하지 않았습니다. Redis retriever가 JSON을 만들었는데도 전역 기본값을 따라 YAML parser가 선택됐습니다.
-
-호출 경로를 이어 보면 아래와 같습니다.
-
-```bash
-Redis keys (configured prefix + "*")
-    │
-    ▼
-SCAN + GET
-    │ 각 값 json.Unmarshal, 전체 map json.Marshal
-    ▼
-JSON bytes
-    │ global FileFormat (empty)
-    ▼
-yaml.Unmarshal
-    │
-    ▼
-Feature Flag DTO
-```
-
-이 파싱은 Feature Flag를 평가할 때마다 실행되지 않습니다. SDK가 시작될 때 한 번, 이후 polling이나 명시적인 refresh로 로컬 캐시를 갱신할 때 실행됩니다.
-
-polling interval은 60초였고 jitter도 켜져 있었습니다. 프로세스 시작 시 ±10% 범위에서 주기가 정해져 실제 갱신은 약 54~66초마다 일어났습니다.
-
-실행 빈도는 요청 수와 무관했지만 모든 pod에서 계속 반복됐습니다. 한 번의 비용은 작아도 프로세스가 오래 살아 있는 만큼 쌓였습니다.
-
-## 잘못된 parser인데도 실패하지 않은 이유
-
-JSON bytes를 YAML parser에 넘겼다고 하면 parse error부터 떠올리기 쉽습니다. 이번에는 멀쩡히 성공했습니다.
-
-YAML 1.2는 JSON 호환성을 중요한 목표로 삼았습니다. 일반적인 JSON object와 array 표현은 YAML의 flow collection으로도 읽힙니다.
-
-```json
-{"name": "example", "tags": ["feature", "flag"]}
-```
-
-이 입력은 JSON으로 유효하며 YAML parser도 같은 구조로 해석합니다. 잘못 고른 parser가 결과에서 티를 내지 않은 이유입니다.
-
-일반적인 버그는 실패하기 때문에 발견됩니다. 이번 문제는 성공했기 때문에 profile을 보기 전까지 드러나지 않았습니다.
-
-## YAML parser가 더 많은 일을 한 이유
-
-JSON parser도 입력을 훑으며 token과 상태를 관리합니다. JSON에는 상태 머신이 없고 YAML만 복잡한 것은 아닙니다.
-
-차이는 다루는 문법의 범위입니다. JSON은 object, array, string, number처럼 비교적 제한된 문법을 처리합니다.
-
-YAML은 block과 flow style, 들여쓰기, anchor, alias, tag, 여러 scalar 표현까지 고려해야 합니다.
-
-| 항목 | JSON | YAML |
-|---|---|---|
-| 구조 표현 | 명시적인 구분자 | 들여쓰기와 flow/block style |
+|  | JSON 파서 | YAML 파서 |
+|----------|----------|----------|
+| 문법 규칙 | ~6개 타입 (object, array, string, number, bool, null) | 수십 개 (앵커, 별칭, 멀티라인, 태그, flow/block 스타일 등) |
+| 파서 구조 | 단순 재귀 하강 파서 | 상태 머신(state machine) 기반 |
+| 구분자 | 명시적 (`{}`, `[]`, `:`, `,`) | 들여쓰기와  flow/block style, 컨텍스트 의존적 |
+| 타입 추론 | 불필요 (문법이 타입을 결정) | 필요 (`yes` → bool? string?) |
+| 중간 표현 | 없음 (직접 매핑) | yaml.Node 트리 생성 |
+| 메모리 할당 | 최종 구조체만 | Node 트리 + 최종 구조체 |
 | 지원 문법 | 제한된 JSON 데이터 타입 | anchor, alias, tag, 다양한 scalar 표현 |
-| 이번 입력 | 원래 포맷 | 읽을 수는 있지만 불필요하게 범용적 |
 
-사용 중이던 go-yaml v3는 입력을 parse해 node를 구성한 뒤 대상 Go 값으로 decode합니다.
 
-`encoding/json`도 자체 scanner와 decode 과정을 거치지만 이번 입력에는 JSON 문법만 처리하면 충분했습니다.
+``` yaml
 
-YAML이 언제나 몇 배 느리다고 일반화할 생각은 없었습니다. 차이는 payload의 flag 수와 byte 크기, 구조, 실행 환경에 따라 달라집니다.
+- [YAML 경로]  JSON bytes → 상태 머신 토큰화 → yaml.Node 트리 구성 → Go 구조체 매핑 (3단계)
+- [JSON 경로]  JSON bytes → 토큰 읽으면서 바로 Go 구조체 매핑 (1단계)
+```
 
-실제 payload 규모를 모른 채 만든 benchmark는 합성 입력의 수치일 뿐입니다. 몇 배라는 숫자는 빼고 잘못된 parser가 호출됐다는 profile과 변경 후 경로를 확인했습니다.
+YAML 파서(`gopkg.in/yaml.v3`)는 scanner -> parser -> decoder 3단계를 거치며, 1 ~ 2단계 비용이 큰 부분을 차지한다. Pyroscope에서 확인한 yaml_parser_state_machine은 이 단계에 해당한다. JSON 파서(`encoding/json`)는 중간 트리 없이 토큰을 읽으면서 바로 Go 구조체에 매핑한다. 즉, 같은 데이터를 파싱할 때 YAML 파서는 JSON 대비 2~3배 더 많은 CPU 명령어를 실행한다.
 
-## 해결은 한 줄이었지만 원인은 한 줄에서 보이지 않았다
 
-서비스 쪽 수정은 간단했습니다. go-feature-flag 설정에 실제 입력 포맷을 명시했습니다.
+
+
+## 개선 결과 확인
+
+회사 코드 수정은 간단했다. 앞서 언급한대로 그저 file format을 명시적으로 선언하여 yaml 파서가 아닌 json 파서가 처리하도록 수정했다.
+
+![ff-bsapi.png](/ff-bsapi.png)
 
 ```diff
 ffConfig := ffclient.Config{
@@ -132,10 +118,10 @@ ffConfig := ffclient.Config{
 }
 ```
 
-이제 Redis retriever가 만든 JSON bytes는 `json.Unmarshal` 분기로 바로 갑니다.
+이제 Redis retriever가 만든 JSON bytes는 `json.Unmarshal` 분기를 탄다.
 
 ```bash
-Redis keys (configured prefix + "*")
+Redis Retriever
     │ SCAN + GET
     ▼
 각 값 json.Unmarshal, 전체 map json.Marshal
@@ -149,58 +135,53 @@ json.Unmarshal
 Feature Flag DTO
 ```
 
-기존 테스트와 검증 환경에서 Feature Flag 동작도 다시 확인했습니다. 기능 회귀 여부와 CPU 비용은 같은 검증으로 증명되지 않습니다.
-
-성능은 배포 후 profile에서 따로 확인했습니다.
-
-## 어느 정도 개선됐다고 볼 수 있을까
-
-변경 전과 같은 조건의 raw profile은 남아 있지 않았습니다. 과거의 약 4%와 현재 profile은 동일한 before/after 실험이 아닙니다.
-
-배포가 충분히 지난 2026-08-02, prod의 최근 30분 CPU profile을 다시 확인했습니다.
-
-전체 profile을 한 번에 합치는 조회는 실패했습니다. 정상적으로 받은 6개 pod profile을 합쳐 표본으로 삼았습니다.
-
-표본의 전체 CPU sample은 2,831.47초였습니다. YAML 관련 함수는 검출되지 않았습니다.
-
-`ConvertToFlagStruct → encoding/json.Unmarshal`의 누적 CPU는 0.08초, 전체의 0.0028%였습니다. 반올림하면 약 0.003%입니다.
+이후에 설명하겠지만 FileFormat을 명식적으로 설정하여 cpu 병목 지점이 pyroscope에서 사라진 것 까지 확인했다.
+표본의 전체 CPU sample은 2,831.47초로 YAML 관련 함수는 검출되지 않았고, **ConvertToFlagStruct → encoding/json.Unmarshal**의 누적 CPU는 0.08초였다. 전체 비율로 계산하면 0.0028% 정도로 이전의 4%와 비교하면 확연히 개선된 점을 확인할 수 있었다.
+(다만 서비스 CPU가 정확히 4% 줄었다고 하기엔 당시의 트래픽, workload, pod 범위가 다르기 때문에 cpu 성능 개선이 4% 나아졌다고 단정지을 수는 없었다.) <br/>
+**불필요한 yaml 파싱으로 인한 병목을 적절한 parser 호출로 개선한 간단한 작업이었다.**
 
 | 구분 | 변경 전 prod 기록 | 변경 후 prod 표본 |
-|---|---:|---:|
+|---|---|---|
 | 범위 | 당시 profile, raw 원본 미보존 | 30분, 6개 pod |
 | parser 경로 | YAML parser 약 4% | YAML 함수 미검출 |
 | 대응 JSON 변환 경로 | 확인 불가 | 누적 0.08초 / 0.0028% |
 
-과거와 현재는 시점, workload, pod 범위가 다릅니다. 변경 전 raw profile도 없습니다. 서비스 전체 CPU가 정확히 4% 줄었다고 말할 근거는 부족합니다.
+## 오픈소스 기여로 근본부터 수정하기
 
-확인할 수 있는 범위는 여기까지입니다. 과거 prod에서 약 4%로 기록된 YAML 병목은 현재 표본에서 검출되지 않았습니다.
+회사 코드는 단순히 `FileFormat: "json"` 추가만으로 충분했지만, go-feature-flag 라이브러리 자체에서 default로 yaml parser를 강제하는 것이 ~마음에 안들었다~ 신경쓰였다. **애초에 retriever에 맞는 parser를 세팅해주면 안되나?**
 
-대응하는 JSON 변환 경로는 약 0.003%였습니다. 의도한 parser 경로 전환은 확인됐습니다.
-
-## 전역 기본값을 JSON으로 바꿀 수 없는 이유
-
-이 서비스에는 `FileFormat: "json"`이면 충분했습니다. 같은 해결책을 라이브러리 기본 동작으로 옮기는 일은 간단하지 않았습니다.
-
-업스트림 해결책을 논의할 당시 go-feature-flag는 Redis 외에도 File, HTTP, MongoDB, PostgreSQL 같은 retriever를 지원했습니다.
-
-Redis, MongoDB, PostgreSQL retriever는 결과를 JSON으로 직렬화합니다. File과 HTTP는 사용자가 제공한 원본 bytes를 그대로 전달하기도 합니다.
+앞서 언급했듯 ff는 Redis 외에 File, HTTP, MongoDB, PostgreSQL 같은 retriever도 지원한다.
+Redis, MongoDB, PostgreSQL retriever는 결과를 JSON으로 직렬화하지만 File과 HTTP는 사용자가 제공한 원본 bytes를 그대로 전달하기에 Json parser로 강제할 수도 없다.
 
 | Retriever | 반환 포맷 | 전역 JSON 강제 |
 |---|---|---|
 | Redis / MongoDB / PostgreSQL | 구현상 JSON | 가능 |
 | File / HTTP 등 | 사용자 원본 포맷 | 불가능 |
 
-기본 parser를 JSON으로 바꾸면 기존 YAML 파일을 쓰는 사용자가 영향을 받습니다.
+cache manager가 Redis 같은 구체 타입을 검사하게 만드는 방법도 있지만 retriever가 추가될 때마다 도메인 코드에 구현 세부사항이 매번 추가되는 점이 문제라 생각했다. 기존 `Retriever` 인터페이스에 포맷 메서드를 추가하는 방법은 사용자가 직접 만든 모든 retriever가 새 메서드를 구현해야 하므로 하위 호환성을 깨뜨린다.
 
-cache manager에서 Redis 같은 구체 타입을 검사할 수도 있습니다. 그러면 새 retriever를 추가할 때마다 중앙 코드에 구현 세부사항이 새어 들어갑니다.
+``` go
+// cache manager 내부에서 구체 타입을 검사하는 방법, 새로운 retriever가 추가될 때마다 수정이 필요하여 좋은 방법이 아니라 생각했다.
+func getOutputFormat(r Retriever, defaultFormat string) string {
+    switch r.(type) {
+    case *redisretriever.Retriever,
+        *mongodbretriever.Retriever,
+        *postgresqlretriever.Retriever:
+        return "json"
+    default:
+        return defaultFormat
+    }
+}
+```
 
-기존 `Retriever` 인터페이스에 포맷 메서드를 바로 추가하면 모든 사용자 구현체가 새 메서드를 구현해야 합니다. 하위 호환성을 깨뜨리는 변경입니다.
+### retriever가 출력 포맷을 알려주도록
 
-서비스에서 통했던 한 줄은 라이브러리의 범용 해법이 아니었습니다.
+아예 `FormatHinter`라는 새로운 인터페이스를 만들고 OutputFormat()이란 추상 메서드를 내부에 추가했다. (go에서도 추상 메서드라는 말을 쓰던가)
+이렇게 하면 각 retriever manager에서 해당 인터페이스를 구현했는지 type assertion으로 확인할 수 있어 `RedisRetriever`같은 구체 타입이 아닌 해당 retriever의 출력 포맷만 확인할 수 있다.
+새로운 인터페이스는 옵셔널하게 구현을 선택할 수 있어 하위 호환을 깨뜨리지도 않고, getOutputFormat() 메서드 내부에서 (redis 같은) 구체 타입을 검사하지도 않기 때문에 결합력을 높이지도 않는다. 
+위 내용에 기반하여 새로운 인터페이스를 도입하는 이슈를 올렸다. [go-feature-flag Issue #5321](https://github.com/thomaspoignant/go-feature-flag/issues/5321)
 
-## 출력 포맷의 소유권을 retriever로 옮기기
-
-업스트림에는 optional interface `FormatHinter`를 제안했습니다.
+![go-feature-flag FormatHinter PR](ff-yaml-pr.png)
 
 ```go
 type FormatHinter interface {
@@ -208,71 +189,30 @@ type FormatHinter interface {
 }
 ```
 
-cache manager는 retriever가 `FormatHinter`를 구현했는지 확인합니다. 값이 있으면 hint를 먼저 쓰고 구현하지 않았거나 빈 값을 반환하면 기존 전역 `FileFormat`으로 돌아갑니다.
+cache manager는 retriever가 `FormatHinter`를 구현했는지 확인한다. 반환값이 있으면 hint를 먼저 사용하고 구현하지 않았거나 빈 값을 반환하면 기존의 전역 `FileFormat`으로 돌아간다.
 
-```go
-func getOutputFormat(r Retriever, fileFormat string) string {
-    if hinter, ok := r.(FormatHinter); ok {
-        if hint := hinter.OutputFormat(); hint != "" {
-            return hint
-        }
-    }
-    return fileFormat
-}
-```
+![ff-code.png](/ff-code.png)
 
-Redis, MongoDB, PostgreSQL retriever만 `json`을 알립니다. File과 HTTP를 포함한 나머지는 기존 설정을 그대로 따릅니다.
+위 내용처럼 PR을 올렸고 메인테이너가 보시기에 만족스러워하며 어프루브 될 수 있었다.
+[PR #5322](https://github.com/thomaspoignant/go-feature-flag/pull/5322)  <br/>
+참고로 이 분은 혼자 오픈소스를 유지보수 하시는 것 같다. 기여할 때마다 항상 반갑게(?) 기여를 맞이해주신다. 
 
-기존 `Retriever` 인터페이스는 바꾸지 않았습니다. 사용자가 만든 retriever의 source compatibility를 지키면서 출력 포맷을 아는 구현체만 정보 하나를 더 제공합니다.
+![go-feature-flag maintainer approval](ff-yaml-comment.png)
 
-처음에는 parser의 전역 설정 하나가 빠진 문제로 보였습니다. 호출 경로를 끝까지 따라가니 bytes를 생산하는 retriever가 출력 포맷을 가장 정확히 알고 있었습니다.
+## 마무리
 
-> 출력 포맷은 전역 parser 설정이라기보다 데이터를 생산하는 retriever의 속성에 가깝습니다.
+정상적으로 동작하는 코드라도 profile을 까보면 예기치 못한 비용과 동작을 드러낸다.
+기능상 에러는 없었지만 불필요하게 성능을 잡아먹는 이슈가 있었고 이를 관측할 수 있는 환경이 구축된 덕분에 문제 파악부터 해결까지 연결될 수 있었다. <br/>
+사내 코드는 한 줄의 변경으로 개선할 수 있었으나 오픈소스 라이브러리는 특정 포맷을 강제할 수 없으니 결국 retriever가 출력 포맷을 알리도록 책임을 옮겼다.
+기존 인터페이스를 깨뜨리지 않으면서도 불필요한 YAML parsing을 피할 수 있었다.
 
-## 포맷 문자열이 아니라 실제 parser 선택을 테스트하기
+프로덕션에서 누락된 한 줄의 설정이 데이터 포맷의 책임을 어디에 둘 것인가라는 설계 문제로 이어졌고 적절한 해법을 찾기 위해 여러 방안을 고민할 수 있는 작업이었다.
 
-`OutputFormat()`이 `json`을 반환하는지만 확인하면 구현체의 선언만 검증합니다. cache manager가 실제 parser 선택에 그 값을 쓰는지는 알 수 없습니다.
-
-manager 테스트에서는 일부러 설정을 충돌시켰습니다. payload는 TOML로 만들고 전역 `FileFormat`은 YAML, retriever hint는 TOML로 뒀습니다.
-
-전역 설정을 따르면 parsing에 실패하고 hint를 먼저 쓸 때만 성공합니다. 단순한 문자열 반환이 아니라 parser 선택의 우선순위를 검증하는 구조입니다.
-
-hint가 비어 있으면 전역 YAML 설정으로 돌아가 parsing에 실패하는 경우도 확인했습니다. Redis, MongoDB, PostgreSQL 테스트는 각 retriever가 JSON을 선언하는지만 확인했습니다.
-
-구현 세부사항보다 실제로 지킬 계약을 기준으로 테스트를 나눴습니다.
-
-## 서비스의 한 줄에서 오픈소스 설계까지
-
-날짜로 놓고 보면 이렇습니다.
-
-1. 2026-05-15: Pyroscope 수집 환경 구축
-2. 2026-05-19: 서비스에 JSON `FileFormat` 명시
-3. 2026-05-23: go-feature-flag Issue와 PR 작성
-4. 2026-05-28: `FormatHinter` 변경 merge
-5. 2026-06-04 KST: v1.54.0에 최초 포함
-
-이 문제는 parser 지식보다 관측 가능성이 먼저였습니다. 기능이 정상인 경로도 profile을 열어 보면 예상하지 못한 비용이 드러납니다.
-
-서비스에서는 한 줄로 빠르게 멈췄지만 그 값을 라이브러리의 기본값으로 옮길 수는 없었습니다.
-
-다양한 입력을 받는 라이브러리에서는 국소적인 workaround와 범용적인 설계를 구분해야 했습니다.
-
-이번에는 bytes를 만든 retriever가 포맷을 가장 정확히 알았습니다.
-
-그 책임을 optional interface로 드러내 하위 호환성을 유지했고 불필요한 YAML parsing도 없앴습니다.
-
-프로덕션에서 발견한 설정 한 줄은 데이터 포맷의 책임을 어디에 둘 것인가라는 설계 문제로 이어졌습니다.
-
-이 변경은 2026년 5월 28일에 merge됐고 go-feature-flag v1.54.0에 처음 포함됐습니다.
 
 ### Reference
 
 - [go-feature-flag Issue #5321](https://github.com/thomaspoignant/go-feature-flag/issues/5321)
 - [go-feature-flag PR #5322](https://github.com/thomaspoignant/go-feature-flag/pull/5322)
-- [go-feature-flag v1.41.3 Redis retriever](https://github.com/thomaspoignant/go-feature-flag/blob/v1.41.3/retriever/redisretriever/retriever.go#L50-L77)
-- [go-feature-flag v1.41.3 cache parser](https://github.com/thomaspoignant/go-feature-flag/blob/v1.41.3/internal/cache/cache_manager.go#L48-L60)
-- [FormatHinter merge commit](https://github.com/thomaspoignant/go-feature-flag/commit/fe7ed77f7d1179d9f63be8d209dc9675ed1536e2)
-- [go-feature-flag v1.54.0](https://github.com/thomaspoignant/go-feature-flag/releases/tag/v1.54.0)
 - [YAML 1.2.2 Specification](https://yaml.org/spec/1.2.2/)
 - [go-yaml v3.0.1 Decode implementation](https://github.com/go-yaml/yaml/blob/v3.0.1/yaml.go#L156-L166)
 - [Go encoding/json](https://pkg.go.dev/encoding/json)
