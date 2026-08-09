@@ -3,14 +3,10 @@
 import ReactMarkdown from 'react-markdown';
 import Image from 'next/image';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
-import {
-  oneLight,
-  oneDark,
-} from 'react-syntax-highlighter/dist/cjs/styles/prism';
+import { oneDark } from 'react-syntax-highlighter/dist/cjs/styles/prism';
 import remarkGfm from 'remark-gfm';
 import rehypeRaw from 'rehype-raw';
 import React from 'react';
-import { useTheme } from 'next-themes';
 import Zoom from 'react-medium-image-zoom';
 import 'react-medium-image-zoom/dist/styles.css';
 import './markdown-styles.css';
@@ -34,12 +30,9 @@ interface Props {
 
 const PostMarkdown = ({ params, containerStyles }: Props) => {
   const { decodedTitle, category, content, date, readingMinutes } = params;
-  const { resolvedTheme } = useTheme();
   const generateIdFromText = (text: string) => {
     return text.replace(/\s+/g, '-').toLowerCase();
   };
-
-  const syntaxTheme = resolvedTheme === 'dark' ? oneDark : oneLight;
 
   const CodeBlock: React.FC<{ language: string; value: string }> = ({
     language,
@@ -57,7 +50,7 @@ const PostMarkdown = ({ params, containerStyles }: Props) => {
         </div>
         <SyntaxHighlighter
           language={language}
-          style={syntaxTheme}
+          style={oneDark}
           customStyle={{ margin: 0, borderRadius: 0, border: 'none' }}
         >
           {value}

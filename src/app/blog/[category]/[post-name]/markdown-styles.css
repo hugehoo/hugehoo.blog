@@ -151,7 +151,7 @@
   margin: 0 0 24px 0;
   border-radius: 6px;
   overflow: hidden;
-  border: 1px solid var(--md-border);
+  border: 1px solid #2a2a30;
 }
 
 .code-block-header {
@@ -159,8 +159,8 @@
   align-items: center;
   justify-content: space-between;
   padding: 8px 16px;
-  background: var(--md-surface);
-  border-bottom: 1px solid var(--md-border);
+  background: #17171a;
+  border-bottom: 1px solid #2a2a30;
 }
 
 .code-block-dots {
@@ -172,13 +172,13 @@
   width: 10px;
   height: 10px;
   border-radius: 50%;
-  background: var(--md-border);
+  background: #2a2a30;
 }
 
 .code-block-lang {
   font-family: 'JetBrains Mono', monospace;
   font-size: 11px;
-  color: var(--md-muted);
+  color: #888580;
   letter-spacing: 0.08em;
 }
 
