@@ -46,16 +46,14 @@ Flag evaluation
 
 인자로 fileFormat을 받도록 되어 있으니 호출하는 곳에서 적절한 fileFormat만 넘겨주면 된다고 생각할 수 있지만, 이를 강제하지 않았고 default가 일종의 fallback 동작을 하여 문제가 없었다. 즉 fileFormat 값을 명시적으로 넘기지 않으면 retriever가 JSON을 만들어도 YAML parser가 동작한다. 그럼 여기서 어떻게 JSON이 YAML Parser에서 동작하는지 의문이 생길 수 있다.
 
-### JSON이 YAML parser에서 동작한 이유
-기본적으로 **JSON은 YAML의 부분집합(subset)이다.** 
-[YAML 1.2 스펙](https://yaml.org/spec/1.2.2/)에서 공식적으로 이를 명시하고 있다.
+### JSON이 YAML 파서에서 동작한 이유
 
-![ff-yaml1.2](ff-yaml1.2.png)
+**YAML 1.2는 JSON의 strict superset이다.** YAML 1.2 문법을 기준으로 유효한 JSON 문서는 YAML 문서로도 해석할 수 있다. [YAML 1.2 스펙](https://yaml.org/spec/1.2.2/)에도 이를 주요 목표로 명시하고 있다.
 
-YAML 1.2는 JSON 호환성을 중요한 목표로 삼았고 일반적인 JSON object와 array 표현은 YAML의 flow collection으로도 해석될 수 있다. 때문에 아래의 예시 JSON은 yaml parser에 의해 정상적으로 파싱된다.
+일반적인 JSON object와 array 표기는 YAML의 flow collection과 호환된다. 따라서 아래 JSON은 YAML 파서에서도 정상적으로 파싱되지만 YAML의 flow style 전체가 JSON 문법과 같다는 의미는 아니다.
 
 ```yaml
-# Flow style (JSON과 동일한 문법)
+# JSON 문법(YAML flow collection과 호환)
 {
   "name": "buzzvil",
   "tags": [
@@ -70,39 +68,28 @@ tags:
   - ad
   - reward
 ```
-부가 설명을 곁들이면, YAML의 `flow style`이 곧 JSON 문법이다.
-모든 valid JSON은 곧 valid YAML이 된다. YAML 파서가 정상적으로 읽을 수 있다는 의미지만 반대는 성립하지 않는다.
-YAML의 `block style`, 앵커, 주석 등은 JSON 파서가 읽을 수 없다. JSON이 YAML의 서브셋이지 그 반대는 아니기 때문이다.
+즉, 유효한 JSON은 YAML 파서가 읽을 수 있지만 반대는 성립하지 않는다. YAML의 flow style에는 JSON에 없는 표현도 있으며 block style과 앵커, 주석 등 YAML 고유 문법은 JSON 파서가 읽을 수 없다.
 
-## YAML parser가 CPU를 더 태운 이유
-다시 돌아가서 정리해보자. 
-정리하면 JSON이 YAML Parser에서도 정상적으로 파싱된다는 의미인데, **ConvertToFlagStruct()이 CPU 병목으로 잡힌 이유는 무엇일까?**
+## YAML 파싱 경로에서 CPU 비용이 발생한 이유
 
-JSON은 object, array, string, number처럼 비교적 제한된 문법을 처리하는 반면, YAML은 (JSON의 Super Set 답게)
-block과 flow style, 들여쓰기, anchor, alias, tag, 여러 scalar 표현까지 고려해야 한다. 더 자세한 차이는 아래 표를 참고하시라.
+JSON이 YAML 파서에서도 정상적으로 파싱된다면, **왜 `ConvertToFlagStruct()`이 CPU 프로파일의 핫스팟으로 나타났을까?**
 
+JSON은 object, array, string, number처럼 비교적 제한된 문법을 처리한다. 반면 YAML은 flow와 block style, 들여쓰기, anchor, alias, tag, 여러 scalar 표현까지 고려해야 한다.
 
-|  | JSON 파서 | YAML 파서 |
-|----------|----------|----------|
-| 문법 규칙 | ~6개 타입 (object, array, string, number, bool, null) | 수십 개 (앵커, 별칭, 멀티라인, 태그, flow/block 스타일 등) |
-| 파서 구조 | 단순 재귀 하강 파서 | 상태 머신(state machine) 기반 |
-| 구분자 | 명시적 (`{}`, `[]`, `:`, `,`) | 들여쓰기와 flow/block style, 컨텍스트 의존적 |
-| 타입 추론 | 불필요 (문법이 타입을 결정) | 필요 (`yes` → bool? string?) |
-| 중간 표현 | 없음 (직접 매핑) | yaml.Node 트리 생성 |
-| 메모리 할당 | 최종 구조체만 | Node 트리 + 최종 구조체 |
-| 지원 문법 | 제한된 JSON 데이터 타입 | anchor, alias, tag, 다양한 scalar 표현 |
+| 구분 | `encoding/json` | `go-yaml/v3` |
+|---|---|---|
+| 지원 문법 | JSON | JSON을 포함한 YAML 문법 |
+| 처리 구조 | scanner와 decoder가 Go 값으로 변환 | scanner와 parser가 `yaml.Node`를 만들고 decoder가 Go 값으로 변환 |
+| 이 사례 | Redis retriever 출력의 의도한 경로 | `FileFormat`이 비었을 때 선택된 fallback 경로 |
 
-
-``` yaml
-
-- [YAML 경로]  JSON bytes → 상태 머신 토큰화 → yaml.Node 트리 구성 → Go 구조체 매핑 (3단계)
-- [JSON 경로]  JSON bytes → 토큰 읽으면서 바로 Go 구조체 매핑 (1단계)
+```text
+[YAML 경로] JSON bytes → scanner/parser → yaml.Node → decoder → Go 구조체
+[JSON 경로] JSON bytes → scanner/decoder → Go 구조체
 ```
 
-YAML 파서(`gopkg.in/yaml.v3`)는 scanner -> parser -> decoder 3단계를 거치며, 1~2단계 비용이 큰 부분을 차지한다. Pyroscope에서 확인한 yaml_parser_state_machine은 이 단계에 해당한다. JSON 파서(`encoding/json`)는 중간 트리 없이 토큰을 읽으면서 바로 Go 구조체에 매핑한다. 즉, 같은 데이터를 파싱할 때 YAML 파서는 JSON 대비 2~3배 더 많은 CPU 명령어를 실행한다.
+`encoding/json`에도 상태 머신 기반 scanner가 있으므로 상태 머신 사용 여부만으로 비용 차이를 설명할 수는 없다. `go-yaml/v3`가 지원하는 더 넓은 문법과 `yaml.Node`를 거치는 처리 경로는 추가 작업을 만들 수 있다.
 
-
-
+정확한 성능 차이는 데이터와 구현에 따라 달라지므로 구조만 보고 2~3배라고 일반화하기 어렵다. 이 사례에서는 프로덕션 프로파일에서 `yaml_parser_state_machine`이 약 4%를 차지한 것을 근거로 불필요한 YAML 경로의 비용을 확인했다.
 
 ## 개선 결과 확인
 
@@ -215,4 +202,4 @@ cache manager는 retriever가 `FormatHinter`를 구현했는지 확인한다. �
 - [go-feature-flag PR #5322](https://github.com/thomaspoignant/go-feature-flag/pull/5322)
 - [YAML 1.2.2 Specification](https://yaml.org/spec/1.2.2/)
 - [go-yaml v3.0.1 Decode implementation](https://github.com/go-yaml/yaml/blob/v3.0.1/yaml.go#L156-L166)
-- [Go encoding/json](https://pkg.go.dev/encoding/json)
+- [Go encoding/json scanner implementation](https://go.dev/src/encoding/json/scanner.go)
