@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "test:book": "node --no-warnings --test src/lib/book.test.ts"
   },
   "dependencies": {
     "@radix-ui/react-select": "^2.1.1",
