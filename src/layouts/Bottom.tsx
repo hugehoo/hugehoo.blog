@@ -9,11 +9,7 @@ export const Bottom = () => {
             @huge.hoo
           </p>
         </a>
-        <a href="https://blog-scrapper-ui.vercel.app/">
-          <p className="text-gray-500 hover:text-gray-600 transition-colors duration-300">
-            @blog-scrapper
-          </p>
-        </a>
+
       </div>
     </footer>
   );
