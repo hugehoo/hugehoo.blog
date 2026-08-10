@@ -50,6 +50,7 @@ export const Header = () => {
       <div className={styles.navStyle}>
         <nav className="flex items-center gap-5">
           {navLink('/blog', 'Blog')}
+          {navLink('/book', 'Book')}
           {navLink('/about', 'About')}
         </nav>
         <div className="flex items-center gap-3 text-gray-500 dark:text-gray-400">

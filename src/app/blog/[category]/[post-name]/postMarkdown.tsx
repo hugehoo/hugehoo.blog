@@ -24,12 +24,25 @@ interface Props {
     content: string;
     date: Date;
     readingMinutes?: number;
+    bookInfo?: {
+      author?: string;
+      publisher?: string;
+      publicationYear?: number;
+      originalTitle?: string;
+    };
   };
   containerStyles?: any;
 }
 
 const PostMarkdown = ({ params, containerStyles }: Props) => {
-  const { decodedTitle, category, content, date, readingMinutes } = params;
+  const { decodedTitle, category, content, date, readingMinutes, bookInfo } =
+    params;
+  const bookDetails = [
+    { key: 'author', value: bookInfo?.author },
+    { key: 'publisher', value: bookInfo?.publisher },
+    { key: 'publicationYear', value: bookInfo?.publicationYear },
+    { key: 'originalTitle', value: bookInfo?.originalTitle, italic: true },
+  ].filter(({ value }) => value !== undefined);
   const generateIdFromText = (text: string) => {
     return text.replace(/\s+/g, '-').toLowerCase();
   };
@@ -71,21 +84,37 @@ const PostMarkdown = ({ params, containerStyles }: Props) => {
         <h1 className="text-[24px] font-bold leading-[1.25] tracking-tight text-gray-900 dark:text-gray-50 sm:text-[28px]">
           {decodedTitle}
         </h1>
-        <div className="mt-5 flex items-center gap-2 text-[13px] text-gray-500 dark:text-gray-500">
-          <span>
-            {date.toLocaleDateString('ko-KR', {
-              year: 'numeric',
-              month: 'long',
-              day: 'numeric',
-            })}
-          </span>
-          {readingMinutes ? (
-            <>
-              <span aria-hidden="true">·</span>
-              <span>{readingMinutes}분 읽기</span>
-            </>
-          ) : null}
-        </div>
+        {bookDetails.length > 0 && (
+          <div className="mt-6 border-t border-gray-100 pt-5 text-right text-[15px] font-medium leading-relaxed text-gray-400 dark:border-gray-800 dark:text-gray-500">
+            {bookDetails.map(({ key, value, italic }, index) => (
+              <React.Fragment key={key}>
+                {index > 0 && (
+                  <span className="mx-2" aria-hidden="true">
+                    |
+                  </span>
+                )}
+                {italic ? <em className="font-normal">{value}</em> : value}
+              </React.Fragment>
+            ))}
+          </div>
+        )}
+        {!bookInfo && (
+          <div className="mt-5 flex items-center gap-2 text-[13px] text-gray-500 dark:text-gray-500">
+            <span>
+              {date.toLocaleDateString('ko-KR', {
+                year: 'numeric',
+                month: 'long',
+                day: 'numeric',
+              })}
+            </span>
+            {readingMinutes ? (
+              <>
+                <span aria-hidden="true">·</span>
+                <span>{readingMinutes}분 읽기</span>
+              </>
+            ) : null}
+          </div>
+        )}
       </header>
 
       <article className="post-content">

@@ -3,6 +3,23 @@
 - [ ] ratelimiter 를 뚫을 수 있을까?
 - [ ] scheme registry
 
+### Book 기록 추가
+
+`src/books/<slug>.mdx` 파일을 아래 형식으로 추가합니다.
+
+```md
+---
+title: '책 제목'
+date: 2026-08-10
+author: '저자'
+publisher: '출판사'
+publicationYear: 2025
+originalTitle: 'Original Title (2024)'
+---
+
+자유로운 독서 기록
+```
+
 ### Thumbnail size guide
 
 Post list thumbnails use a **16:10** aspect ratio with `object-cover` (fills the box and crops anything that doesn't fit).
@@ -13,7 +30,7 @@ Post list thumbnails use a **16:10** aspect ratio with `object-cover` (fills the
 
 Set the path in a post's MDX frontmatter:
 
-``` bash
+```bash
 ---
 thumbnail: /img/your-image.png
 ---
