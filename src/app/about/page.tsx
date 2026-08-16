@@ -14,65 +14,48 @@ const About = async () => {
           입니다.
         </div>
         <div>
-          6년차 소프트웨어 개발자로{' '}
+          7년차 소프트웨어 개발자로{' '}
           <a
             href="https://www.buzzvil.com/"
             className="font-medium text-red-500 hover:text-red-600 transition-colors duration-300"
           >
-            버즈빌{' '}
+            버즈빌
           </a>
-          Product Backend 팀에서 서버 개발을 하고 있습니다. <br />{' '}
+          에서 서버 개발을 주로 맡고, 최근에는 프론트엔드/인프라 가리지
+          않고 기여하고 있습니다. <br/>
+          AI 시대에 인간만이 쓸 수 있는 글을 쓰려 노력합니다.
+          <br />
         </div>
         <br />
         <div>
-          <div className={subTitleProperty}>글쓰기와 블로그</div>
-          <div>
-            5년간{' '}
-            <a
-              className={anchorProperty}
-              href="https://junior-datalist.tistory.com/"
-            >
-              티스토리 블로그
-            </a>
-            를 운영했지만 마음 한켠엔 늘 직접 블로그를 개발하고 싶은 로망이
-            있었는데요, 현재 블로그는 그 로망을 한 걸음씩 실현해 가는 과정으로
-            봐주시면 감사하겠습니다.
-            <div>
-              개발자 글쓰기 커뮤니티 <b>글또</b>에서 5년째 활동하고 있습니다.{' '}
-              {/* <br /> */}
-              어른이지만 더 어른이 돼서도 글 쓰는 개발자이고 싶습니다.
-              <br />
-              <br />
-              <div className={subTitleProperty}>사이드 프로젝트</div>
-              <ul className="list-disc list-inside">
+            <div className={subTitleProperty}>사이드 프로젝트</div>
+            <ul className="list-disc list-inside">
+              <li>
+                <a
+                  className={anchorProperty}
+                  href="https://sponge-nitrogen-136.notion.site/Opensource-259ace4e50c68007812ec172c74ace00"
+                >
+                  Open Source Contribution
+                </a>
+              </li>
+              <li>
+                <a
+                  className={anchorProperty}
+                  href="https://www.newsis.com/view/?id=NISX20220822_0001985841"
+                >
+                  2022 Junction Asia 해커톤 Zep 트랙 1위
+                </a>
                 <li>
                   <a
                     className={anchorProperty}
-                    href="https://sponge-nitrogen-136.notion.site/Opensource-259ace4e50c68007812ec172c74ace00"
+                    href="https://junior-datalist.tistory.com/"
                   >
-                    Open Source Contribution
+                    티스토리 블로그
                   </a>
                 </li>
-                <li>
-                  2022 Junction Asia 해커톤{' '}
-                  <a
-                    className={anchorProperty}
-                    href="https://www.newsis.com/view/?id=NISX20220822_0001985841"
-                  >
-                    Zep 트랙에서 1위
-                  </a>
-                  를 수상했습니다.{' '}
-                  <a
-                    className={anchorProperty}
-                    href="https://github.com/ZEP-SIGHT/junction-back"
-                  >
-                    🔗Github (2022.08)
-                  </a>
-                </li>
-              </ul>
-              <br />
-            </div>
-          </div>
+              </li>
+            </ul>
+            <br />
         </div>
       </div>
     </>
