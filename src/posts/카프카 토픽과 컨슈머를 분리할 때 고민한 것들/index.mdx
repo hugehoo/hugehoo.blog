@@ -1,0 +1,135 @@
+---
+title: '카프카 토픽을 분리할 때 고민한 것들'
+date: 2026-08-17
+desc: '토픽 하나를 더 만드는 일은 어떻게 운영 경계를 나누는 일이 되었나'
+thumbnail:
+category: kafka
+open: true
+---
+
+_사내 서비스 운영 경험을 토대로 작성된 글입니다._
+
+## 세 줄 요약
+
+1. 특정 외부 연동의 재시도 burst와 처리 제약이 shared consumer 전체에 영향을 줘, producer부터 전용 topic으로 라우팅하는 구조를 설계했다.
+2. topic, consumer group, deployment, HPA, 관측과 rollback을 함께 분리해야 비로소 운영 격리가 된다.
+3. rate limiter와 offset commit 개선처럼 중요한 문제라도, 이번 전환의 안전성을 해치면 별도 결정으로 미루는 편이 낫다.
+
+## 이제는 더 이상 물러날 곳이 없다
+
+카프카 컨슈머 그룹으로 구성된 적립 서비스는 하나의 토픽에서 이벤트를 컨슈밍하고 이벤트 내용을 토대로 알맞은 매체사에 적립 요청을 보낸다. 연동된 매체사 수는 대략 100여개 정도로, 하나의 컨슈머 그룹에서 수십개의 파드가 개별 매체사의 적립을 담당하고 있다. 현재 시스템 아키텍처는 설계 초기부터 유지된 형태로 지금까지 안정적으로 운영되고 있었다.
+하지만 최근 특정 대형 매체사의 요구사항이 추가되면서 토픽 분리를 해야 하는것 아닌가 의견이 나왔는데, 대략적인 요구사항은 적립 서버(컨슈머)에서 해당 매체사로 요청을 보내기 전에 backpressure 기능을 추가해 특정 tps를 초과히지 않도록 제어해달라는 내용이었다. 쉽게 말해 일정 이상의 부하가 몰리지 않도록 제어해달라는 말이었다. 특정 tps 이상 초과 시, 매체사쪽 서버에서 에러를 응답하고 우리 적립서버는 웅답받은 에러를 재시도 배치에 계속 적재한다. 정해진 시간마다 재시도 배치 잡이 돌면서 요청을 보내는 식으로 적립 이벤트를 누락없이 전송하는데, 문제는 실패 건수가 너무 많이 쌓이면서 재시도 배치 실행 시 정해진 tps를 초과해버리는 상황이 발생했다. 실패한 재시도 요청은 또 다른 재시도 배치에 들어가면서 카프카 lag을 키운다. 해당 매체사의 요청량이 스파이크 칠 때 실패가 적립되면서 카프카 Lag도 폭증했고, 이로 인해 해당 토픽을 공유하는 다른 매체사의 적립 요청도 지연이 발생하기 시작했다.
+
+레디스 같은 추가 인프라를 증설하여 tps 제한을 건 매체사의 적립요청만 별도로 처리하는 것도 고려했지만, 인프라 증설 비용과 다른 매체사 영향도까지 고려해서 아예 토픽을 분리하여 영향을 격리하는 방식을 택했다.
+
+서론이 길었는데 이건 처리 부하량이 과도한 트래픽을 위한 분리가 아닌, 특정 매체사의 요구사항을 안정적으로 처리하기 위한 하나의 대응방법이다. 어째서 토픽까지 분리하면서 대응을 하냐고 묻는다면, 해당 매체사가 우리 고객 중 top tier 매체사이기 때문이라고만 말하겠다.
+
+## 토픽 분리
+
+분리해야 할 매체사의 이벤트는 producer의 routing 단계에서 전용 topic으로 보내는 방식으로 처리했다.
+전용 consumer group과 Deployment는 신규 topic만 읽는다.
+
+```text
+기존
+producer → (기존) shared topic → (기존) shared consumer group
+
+변경 후
+producer → (기존) shared topic    → (기존) shared consumer group
+         → (신규) dedicated topic → (신규) dedicated consumer group
+```
+
+새 topic은 단순한 큐가 아니다. 대상 연동의 대기열, 처리 자원, autoscaling, dashboard, alert를 묶는 경계다.
+
+## Partition
+
+### Partition 수 선정 기준
+
+기존 토픽은 파티션은 100개로 설정돼 있었고, 피크 시간 기준 컨슈머 파드는 20~25개 사이로 운영되는 점으로 고려하여, 분리할 토픽의 파티션 개수도 정해야 했다.
+격리하려는 매체사의 트래픽은 전체의 24% 정도를 차지하는데, 연동된 매체사가 100여 곳인점을 고려하면 하나의 매체사에서 발생하는 트래픽 규모가 상당히 크다는 점을 알 수 있다. 사실 하나의 매체사를 위해 이렇게 토픽/컨슈머를 분리한다는 것은 우리에겐 꽤나 중요한 고객사임을 암시한다.
+
+이번 컨슈머 분리는 대규모 트래픽을 병렬로 처리함과 동시에 tps 한도를 넘지 않는 것에서 트레이드 오프를 해야했다. 단순히 tps 한도만 지키려한다면 제한된 파티션 수와 폴링 속도를 늦추는 방식으로 제어할 수 있었겠지만, 대규모 트래픽을 무작정 지연처리할 수는 없기에 적정 규모의 파티션 수를 산정해야했다.
+
+우선 max consumer process 수 이상으로 파티션 수를 설정하여 병렬성을 최대한 보장했고, max consumer process 수에 맞춰 tps 한도를 유지하기로 했다.
+예를 들어 max replica 수가 7개인 경우, partition 수는 적어도 7개 이상이 필요한데 rebalancing과 운영상 여유를 고려하면 partition 수는 10개로 정할 수 있다.
+partition 수는 처리량만으로 정하는 숫자가 아니라 consumer parallelism의 상한이자, 스케일 아웃 시 실제 처리량 증가로 이어지는 값이다.
+
+### 파티션 키는 기존과 동일하게 사용
+
+partition message key는 기존과 같은 사용자 식별자를 유지했다. 전역 순서는 보장하지 않지만 같은 사용자의 요청은 동일 partition 에서 처리되므로 사용자 단위의 순서는 유지할 수 있다.
+
+<!--topic을 나누면 두 topic 사이의 순서는 보장되지 않는다. 전환 중에는 기존 topic에 남은 메시지와 새 topic에 들어온 메시지의 경계를 따로 다뤄야 한다.-->
+
+## Consumer
+현재 consumer는 python/django 애플리케이션으로 운영중이도 지표상 memory usage가 높은 편이다. 서비스 특성 상 http i/o를 많이 하는 편이지만, 그에 못지않게 메시지 serialize/deserialize 와 db i/o 작업도 많이 수행한다. 또한 django orm에서 mysql pool 을 지원해주지 않는 점 때문에 scale out 수가 높아지면 db connections이 많아지면서 too many connections 에러도 종종 발생하는 상황이었다. 이러한 상황과 전사적으로 go application을 운영/도입하는 추세였기에 이번 기회에 go application으로 consumer를 마이그레이션하고 싶은 욕심도 생겼지만, 우선 top tier 매체사의 컨슈머를 무중단으로 마이그레이션 해야 하는 점, 토픽 분리가 처음인점을 고려하여 기존 로직을 그대로 사용할 수 있도록 동일한 코드를 사용하기로 했다. 
+
+
+### consumer group은 분리, 로직은 재사용
+
+전용 consumer를 만들면서 새 언어 runtime이나 처리 module을 더하지 않았다. 기존 consumer의 handler, 성공 판정, idempotency, callback, metric, tracing과 Docker image를 그대로 쓴다.
+
+바뀌는 것은 topic, consumer group, process 수와 deployment 설정뿐이다.
+
+```bash
+KAFKA_TASK_TOPIC_NAME=delivery.task.partner
+KAFKA_CONSUMER_GROUP_ID=delivery-partner-consumer
+KAFKA_CONSUMER_PROCESS_NUM=1
+KAFKA_CONSUMER_CONCURRENCY=50
+```
+
+처리 로직을 새로 만들면 business logic의 동등성과 side effect를 처음부터 검증해야 한다. 이번 작업은 consumer를 현대화하는 일이 아니라 영향 범위를 나눈 채 안전하게 전환하는 일이다.
+
+기존 Python/gevent runtime의 CPU와 memory 특성, process-local cache, DB connection 방식도 그대로 따라온다. 그래도 검증된 처리 경로를 재사용하는 편이 전환 위험은 훨씬 작았다.
+
+## rate limiter를 넣지 않기로 한 결정
+
+외부 연동에는 요청량 상한이 있다. HPA가 scale-out할 때 egress TPS도 함께 올라갈 가능성이 있어, token bucket이나 Redis 기반 분산 limiter를 바로 추가하고 싶은 유혹이 있었다.
+
+하지만 replica 간 quota를 공유하는 limiter는 상태 저장소, 장애 시 정책, 재시도와의 상호작용까지 설계해야 한다. 상한 하나를 지키는 것보다 훨씬 큰 변경이다.
+
+이번 단계에서는 상한을 기술적으로 보장하지 않는다고 명시하고, 경고와 장애 alert를 먼저 둔다. 이후 일정 기간 egress TPS, Kafka lag, CPU·memory, DB connection을 보고 limiter의 필요와 형태를 결정한다.
+
+rate limit이 중요하지 않아서 미룬 것은 아니다. 아직 모르는 capacity model을 limiter로 덮기보다, 실제 부하부터 관측하는 편이 더 안전하다고 판단했다.
+
+기존 auto-commit도 이번에는 유지한다. handler가 끝나기 전에 offset이 commit되는 위험은 분명하지만, manual commit과 partition별 완료 offset 추적은 처리 보장 수준 자체를 바꾸는 별도 설계다.
+
+분리 작업에 delivery semantics 재설계까지 섞으면 실패 원인을 분리하기 어렵다. 기존의 보장 수준은 분명히 인지하고 유지하며, 필요한 개선은 별도 RFC에서 다루기로 했다.
+
+## shadow로 검증한 전환
+
+새 topic에 바로 active 메시지를 보내면, 새 consumer가 기존과 똑같이 동작하는지 확인하는 첫 시도가 실제 외부 요청이 된다. producer routing mode를 세 단계로 나눠야 했던 이유다.
+
+| Mode        | 기존 topic    | 신규 topic    |
+| ----------- | ------------- | ------------- |
+| `shared`    | active        | 발행하지 않음 |
+| `shadow`    | active        | shadow        |
+| `dedicated` | 발행하지 않음 | active        |
+
+`shadow` 메시지는 새 consumer가 역직렬화하고 분류·계측만 한다. HTTP 요청, callback, done event, 처리 완료 기록처럼 외부 상태를 바꾸는 동작은 절대 실행하지 않는다.
+
+consume count만 같다고 끝내지 않았다. 시간 구간별 produce count, transaction ID 집합과 checksum, 분류 결과, payload/header schema, partition 분포, delivery error를 함께 비교한다.
+
+이 검증을 며칠 이상 수행해 새 consumer가 메시지를 읽는지, producer routing이 대상을 빠뜨리거나 중복시키지 않는지 확인한다.
+
+## cutover와 rollback의 기준
+
+shadow 검증이 끝나도 producer 설정 하나를 바꾸는 것으로 전환이 끝나지는 않는다. 기존 topic에 이미 들어간 대상 메시지가 모두 처리되기 전까지는 old path가 계속 side effect를 낼 여지가 있다.
+
+producer를 `dedicated` mode로 바꾼 뒤 기존 topic의 모든 partition에 marker를 넣고, 기존 consumer group이 marker를 통과할 때까지 기다리도록 설계했다. marker가 처리됐다는 것은 그 앞의 메시지가 소비됐다는 뜻이다.
+
+drain이 정해 둔 시간 안에 끝나면 전용 consumer를 시작한다. 새 topic의 active 메시지는 그동안 Kafka에 안전하게 쌓이므로 cutover 중에도 producer를 멈출 필요는 없다.
+
+rollback은 cutover 전과 후로 나눴다. 전이라면 producer를 `shared`로 되돌리고 전용 consumer를 멈추면 된다.
+
+후라면 새 topic의 cutoff offset을 기록하고, 전용 consumer가 정상이라면 그 지점까지 drain한다. consumer 자체가 동작하지 않는 경우에만 원본 header와 transaction ID를 보존해 기존 topic으로 replay한다.
+
+“문제가 생기면 되돌린다”는 rollback 계획이 아니다. 어디까지 처리됐는지, 어떤 메시지를 다시 보내도 되는지, replay를 staging에서 검증했는지가 있어야 실제로 되돌릴 수 있다.
+
+## 운영 경계를 나누는 토픽 분리
+
+Kafka topic 하나를 추가하는 변경은 처음에는 인프라 작업처럼 보인다. 실제로는 어떤 트래픽이 어떤 큐를 쓰고, 어떤 consumer가 처리하며, 어느 지표를 보고, 문제가 생기면 어디까지 되돌릴지를 정하는 일이었다.
+
+핵심은 전용 topic 하나가 아니다. topic, group, deployment, autoscaling, 관측, cutover와 rollback을 같은 경계로 맞춘 데 있다.
+
+새 runtime, 분산 rate limiter, manual commit도 필요하지만 이번 전환에 모두 넣지는 않았다. 작동 중인 경로를 최대한 재사용하고, 분리에서 얻은 관측값을 다음 개선의 입력으로 남기는 편을 택했다.
+
+결국 토픽 분리는 데이터를 옮기는 작업이 아니라, 특정 트래픽이 시스템 전체에 행사하던 영향력을 좁히는 작업이었다.
