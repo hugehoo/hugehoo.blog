@@ -65,3 +65,29 @@ offset commit은 `enable.auto.commit=true` 조건으로 설정했다.
 ### 재시도 배치로 인한 lag 폭증?
 앞서 재시도 배치로 인해 tps를 초과하는 문제가 발생했던 점을 언급했다. 재시도 배치 역시 이번에 분리하는 토픽을 통해 이벤트가 발행되기 때문에, 이번 작업이 완료되면 재시도 요청이 폭증하더라도 tps 제한을 넘지 않으면서 요청을 처리할 수 있다. lag은 좀 많이 쌓이겠지만 해당 토픽은 다른 매체사와 공유하지 않기 때문에, 타 매체사 영향을 줄일 수 있다는 점에서 안정적이라 판단했다. 
 lag가 쌓이면서 해당 매체사의 요청 처리는 오래걸리겠지만, 어쩌겠는가 애초에 그쪽에서 tps 제한을 걸었으니...
+
+### Consumer group과 배포 단위도 분리
+
+토픽만 나누고 기존 consumer deployment가 두 토픽을 함께 읽는다면 장애와 확장의 경계는 여전히 같다. 전용 consumer group과 deployment를 만들고 HPA, process 수, limiter 설정도 따로 관리하기로 했다.
+`maxSurge: 0`도 같은 맥락이다. rolling update 중 추가 pod가 떠서 local limiter의 총합이 순간적으로 커지는 일을 막는다. 배포 중 처리 용량이 잠시 줄어드는 대신 TPS 상한을 우선한 선택이다.
+처리 로직까지 새로 만들지는 않았다. 기존 handler, 성공 판정, idempotency, metric, tracing과 Docker image를 그대로 사용하고 topic, consumer group, process 수와 deployment 설정만 분리했다.
+
+
+## 운영하면서 무엇을 볼 것인가
+
+### Lag만으로 상태를 판단하지 않는다
+
+TPS가 제한된 consumer에서 lag 증가는 항상 장애를 의미하지 않는다.
+유입량이 한도를 넘으면 backlog가 생기는 것이 의도한 동작이고 중요한 것은 backlog가 얼마나 오래 남아 있는 것인지 계속 모니터링 하는 것인데, 이건 요청이 꾸준히 처리되길 기다리는 수 밖에 없다(지금은 상황이 그렇다).
+
+HPA 역시 CPU만으로 판단하기 어렵다. HTTP I/O가 주 병목이고 limiter가 처리량을 막고 있으므로 CPU가 낮아도 메시지는 쌓일 수 있다. lag와 oldest message age를 기준으로 확장하되, HPA max는 처리 용량이면서 동시에 매체사에 보낼 수 있는 TPS의 안전장치로 둔다.
+
+서로 다른 토픽 사이에서는 consumer group의 offset을 그대로 옮길 수 없다. 새 topic과 consumer를 먼저 준비한 뒤 producer routing을 변경하고, 기존 topic에 남아 있는 해당 매체사의 메시지를 모두 처리하는 순서로 전환해야 한다.
+전환 중에는 새 consumer의 outbound TPS와 에러율을 확인한다. 문제가 생기면 producer routing을 기존 topic으로 되돌리고 기존 topic에 남은 분리 대상 매체사의 메시지가 모두 처리될 때까지 기존 경로를 유지한다.
+
+## 토픽 하나를 더 만든다는 것
+
+처음에는 전체 트래픽의 1/4을 차지하니 파드와 파티션도 1/4로 나누면 되지 않을까 생각했다. 하지만 파티션은 최대 consumer 수를, 파드는 처리시간과 backlog 해소 목표를, limiter는 매체사와 약속한 TPS를 기준으로 정해야 했다.
+
+결국 이번 작업에서 분리한 것은 topic 뿐 아니라 consumer group, 확장 정책, 재시도 트래픽, 모니터링과 장애 영향 범위를 함께 분리했다. 반대로 검증된 business logic과 runtime은 그대로 두어 영향 범위를 줄였다.
+토픽 분리는 처리량을 늘리는 만능 해법이 아니다. 운영 정책이나 장애 허용 범위가 다른 트래픽을 독립적으로 제어해야 할 때 비로소 의미가 있다. 토픽 하나를 더 만드는 일은 메시지가 흐르는 길을 하나 추가하는 것이 아닌, 운영 책임과 실패 경계를 새로 정하는 일이라 생각됐다.
