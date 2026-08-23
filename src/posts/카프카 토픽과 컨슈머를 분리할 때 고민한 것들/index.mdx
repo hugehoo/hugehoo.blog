@@ -1,6 +1,6 @@
 ---
 title: '카프카 토픽을 분리할 때 고민한 것들'
-date: 2026-08-17
+date: 2026-08-23
 desc: '토픽 하나를 더 만드는 일은 어떻게 운영 경계를 나누는 일이 되었나'
 thumbnail:
 category: kafka
@@ -44,9 +44,9 @@ HPA: 3~5 pods
 local limiter: 50 TPS/process
 maxSurge: 0
 ```
-위 스펙은 파드가 max HPA에 도달하더라도 기준 tps에 맞춰 요청을 처리할 수 있다.
-파티션 수는 최대 HPA 수 보다 여유를 둬, 추후 tps 제한이 높아지거나 최대 10개 consumer까지 partition 증설 없이 확장이 가능한 상황을 고려하여 산정했다.
 
+위 스펙은 파드가 max HPA에 도달하더라도 기준 tps에 맞춰 요청을 처리할 수 있다.
+파티션 수는 최대 HPA 수 보다 여유를 둬, 추후 tps 제한이 높아지거나 최대 10개 consumer까지 partition 증설 없이 확장이 가능한 상황을 고려하여 산정했다. 매체사에서 250 TPS를 고정하는 동안은 HPA max를 5로 고정하고, 추후에 tps 한도가 늘어날 때 HPA를 늘려도 괜찮다고 판단했다. **전역 limiter가 없으므로 local limit × 최대 동시 프로세스 수가 유일한 상한선이다.**
 
 ### 파티션 키는 기존과 동일하게 사용
 
@@ -58,19 +58,10 @@ partition message key는 기존 토픽과 동일하게 사용자 식별자를 �
 또한 django orm에서 mysql pool 을 지원해주지 않는 점(진짜 왜 이러는지 모르겠다) 때문에 급격한 scale out 발생시 db connections이 높아지면서 too many connections 에러도 종종 발생했다.
 전사적으로 go application을 운영/도입하는 기조이기 때문에 이번 기회에 consumer를 포팅 하고싶은 욕심도 있었지만, top tier 매체사의 컨슈머를 무중단으로 마이그레이션 해야 하는 점과 매체사별로 토픽을 분리하는 작업이 처음인 점을 고려하여 기존 로직을 그대로 사용할 수 있도록 동일한 코드를 사용하기로 했다.
 
-### consumer group은 분리, 로직은 재사용
+### 메시지 처리 완료와 offset commit
+offset commit은 `enable.auto.commit=true` 조건으로 설정했다. 
+위 옵션의 장점은 우선 Kafka 브로커로 offset을 직접 커밋하는 코드를 작성하지 않아도 되므로 **적립 요청이라는 도메인 로직에만 집중**할 수 있다. 매 메시지마다 commit()을 호출하지 않아도 되니, 동기식으로 인한 처리 지연과 커밋 요청 수도 줄일 수 있다. 메시지가 완전히 처리되지 않았음에도 자동으로 커밋되어 이벤트가 누락되는 문제가 발생할 수 있지만, 기존 컨슈머도 동일한 옵션을 사용하기도 했고 재시도 배치에서 해당 메시지를 다시 처리해주기 때문에 해당 옵션을 사용해도 안정적으로 메시지를 처리할 수 있다.
 
-consumer를 만들면서 새 언어 runtime이나 처리 module을 더하지 않았다. 기존 consumer의 handler, 성공 판정, idempotency, callback, metric, tracing과 Docker image를 그대로 쓴다.
-
-바뀌는 것은 topic, consumer group, process 수와 deployment 설정뿐이다.
-
-```bash
-KAFKA_TASK_TOPIC_NAME=delivery.task.partner
-KAFKA_CONSUMER_GROUP_ID=delivery-partner-consumer
-KAFKA_CONSUMER_PROCESS_NUM=1
-KAFKA_CONSUMER_CONCURRENCY=50
-```
-
-처리 로직을 새로 만들면 business logic의 동등성과 side effect를 처음부터 검증해야 한다. 이번 작업은 consumer를 현대화하는 일이 아니라 영향 범위를 나눈 채 안전하게 전환하는 일이다.
-
-기존 Python/gevent runtime의 CPU와 memory 특성, process-local cache, DB connection 방식도 그대로 따라온다. 그래도 검증된 처리 경로를 재사용하는 편이 전환 위험은 훨씬 작았다.
+### 재시도 배치로 인한 lag 폭증?
+앞서 재시도 배치로 인해 tps를 초과하는 문제가 발생했던 점을 언급했다. 재시도 배치 역시 이번에 분리하는 토픽을 통해 이벤트가 발행되기 때문에, 이번 작업이 완료되면 재시도 요청이 폭증하더라도 tps 제한을 넘지 않으면서 요청을 처리할 수 있다. lag은 좀 많이 쌓이겠지만 해당 토픽은 다른 매체사와 공유하지 않기 때문에, 타 매체사 영향을 줄일 수 있다는 점에서 안정적이라 판단했다. 
+lag가 쌓이면서 해당 매체사의 요청 처리는 오래걸리겠지만, 어쩌겠는가 애초에 그쪽에서 tps 제한을 걸었으니...
