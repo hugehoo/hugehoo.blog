@@ -100,13 +100,14 @@ func writeGzip(dst io.Writer, src []byte) error {
 
 writer를 빌린 뒤 `Reset(dst)`을 호출하면 “지난 작업은 끝났으니, 이제 현재 요청의 `dst`에 새 압축 결과를 써라”라는 상태가 된다. 압축은 처음부터 시작하지만 만들기 비싼 내부 작업 공간은 그대로 사용한다.
 
-압축을 마친 writer는 여전히 직전 요청의 출력 buffer를 가리킬 수 있다. 그대로 pool에 넣으면 이미 사용이 끝난 buffer까지 메모리에 남기 때문에, 반납 직전에 출력 대상을 `io.Discard`로 바꿔 직전 요청과의 연결을 끊는다. `io.Discard`는 무엇을 써도 그대로 버리는 빈 목적지다.
+압축을 마친 writer는 여전히 직전 요청의 출력 buffer를 가리킬 수 있다. 그대로 pool에 넣으면 이미 사용이 끝난 buffer까지 메모리에 남기 때문에, 반납 직전에 출력 대상을 `io.Discard`로 바꿔 직전 요청과의 연결을 끊는다. `io.Discard`는 전달받은 데이터를 저장하지 않는 `io.Writer`다. 실제 압축 결과를 버리는 것이 아닌 writer가 이전 요청의 buffer를 계속 참조하지 않도록 임시 목적지로 연결했다.
 
-재사용 코드에서 가장 걱정한 것은 A 요청의 내용이 B 요청에 섞이거나, 두 요청이 같은 writer를 동시에 사용하는 경우였다. 서로 다른 payload를 연속으로 압축한 뒤 각각 원문으로 복원되는지 테스트했고, race detector로 동시 접근 문제도 확인했다.
+sync.Pool로 write를 재사용하면서 걱정한 지점은 서로 다른 요청이 섞이거나, 두 요청이 같은 writer를 동시에 사용하는 케이스였다. 서로 다른 payload를 연속으로 압축한 뒤 각각 원문으로 복원되는지 테스트했고 race detector로 동시성 이슈도 검증했다.
 
 ## 캐시 hit의 바이트 복사 제거
 
-두 번째 병목은 로컬 캐시에서 `[]byte`를 찾은 뒤 새로운 backing array를 만든 후 전체 데이터를 다시 복사했다.
+두 번째 병목은 로컬 캐시에서 `[]byte`를 찾은 뒤 새로운 backing array를 만든 후 전체 데이터를 다시 복사하는 것이었다.
+`backing array`는 Go의 slice가 실제 데이터를 저장해 두는 배열로, slice 자체는 데이터를 들고 있지 않고 이 배열을 바라보는 작은 포인터에 가깝다.
 
 ![캐시 데이터를 매번 복사하는 방식과 읽기 전용으로 공유하는 방식](read-only-cache-bytes.jpg)
 _왼쪽은 읽는 사람마다 복사본을 만드는 모습, 오른쪽은 원본을 바꾸지 않고 함께 들여다보는 모습이다._
@@ -116,11 +117,9 @@ cachedBytes := cached.([]byte)
 result[id] = append([]byte(nil), cachedBytes...)
 ```
 
-`cached.([]byte)`는 바이트 전체를 복사하지 않는다. backing array의 주소, 길이, 용량으로 이루어진 slice header만 가져온다.
+`cached.([]byte)`는 바이트 전체를 복사하지 않는다. backing array의 주소, 길이, 용량으로 이루어진 slice header만 가져온다. 실제 복사는 다음 줄의 `append`에서 발생한다. 시작 slice의 용량이 0이므로 새 backing array를 할당하고, `cachedBytes`의 모든 원소를 옮긴다.
 
-실제 복사는 다음 줄의 `append`에서 발생한다. 시작 slice의 용량이 0이므로 새 backing array를 할당하고, `cachedBytes`의 모든 원소를 옮긴다.
-
-복사는 안전한 기본값이다. 반환받은 코드가 바이트를 수정해도 캐시 원본은 오염되지 않는다. 문제는 이 함수의 유일한 소비자가 입력을 읽기만 하는 `json.Unmarshal`이었다는 점이다.
+반환받은 코드가 바이트를 수정해도 캐시 원본은 오염되지 않는다. 문제는 이 함수의 유일한 소비자가 입력을 읽기만 하는 `json.Unmarshal`이었다는 점이다.
 
 새 배열을 만들지 않고 캐시의 backing array를 공유했다.
 
