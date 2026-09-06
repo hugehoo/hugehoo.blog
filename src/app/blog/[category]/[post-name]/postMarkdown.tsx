@@ -8,6 +8,7 @@ import remarkGfm from 'remark-gfm';
 import rehypeRaw from 'rehype-raw';
 import React from 'react';
 import Zoom from 'react-medium-image-zoom';
+import { getPostImageHref } from '@/components/post_list/postHref';
 import 'react-medium-image-zoom/dist/styles.css';
 import './markdown-styles.css';
 
@@ -248,7 +249,7 @@ const PostMarkdown = ({ params, containerStyles }: Props) => {
             ),
             br: ({ node, ...props }) => <br {...props} />,
             img: ({ src, alt }) => {
-              const imagePath = `/posts/${decodedTitle}/${src}`;
+              const imagePath = getPostImageHref(decodedTitle, src || '');
               return (
                 <span
                   style={{

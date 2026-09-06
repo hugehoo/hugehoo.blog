@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import { CardInterface } from '@/components/ui/MainBlog';
+import { getPostHref } from '@/components/post_list/postHref';
 
 interface Props {
   posts: CardInterface[];
@@ -21,7 +22,7 @@ const PostList = ({ posts }: Props) => {
       {visible.map((post) => (
         <li key={post.title}>
           <Link
-            href={`/blog/${post.category}/${decodeURIComponent(post.title)}`}
+            href={getPostHref(post.category, post.title)}
             className="group flex items-start gap-6 py-7 transition-colors sm:gap-8"
           >
             <div className="min-w-0 flex-1">
