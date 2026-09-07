@@ -1,17 +1,15 @@
-import fs from 'fs';
-import path from 'path';
-import matter from 'gray-matter';
-import { sync } from 'glob';
 import dayjs from 'dayjs';
 import PostList from '@/components/post_list/PostList';
 import CategoryChips, {
   CategoryChip,
 } from '@/components/post_list/CategoryChips';
 import Pagination from '@/components/post_list/Pagination';
+import { getPostDocuments } from '@/lib/posts';
 
 export interface CardInterface {
   title: string;
-  thumbnail: string;
+  slug: string;
+  thumbnail?: string;
   category: string;
   content: string;
   summary: string;
@@ -22,22 +20,17 @@ export interface CardInterface {
 const POSTS_PER_PAGE = 10;
 
 const getPosts = (): CardInterface[] => {
-  const POSTS_PATH = path.join(process.cwd(), '/src/posts');
-  const postPaths: string[] = sync(`${POSTS_PATH}/**/**/*.mdx`);
-
-  return postPaths
-    .map((post) => {
-      const file = fs.readFileSync(post, 'utf8');
-      const { data, content } = matter(file);
-
+  return getPostDocuments()
+    .map(({ data, content }) => {
       return {
         title: data.title,
-        date: data.date,
+        slug: data.slug,
+        date: new Date(data.date),
         thumbnail: data.thumbnail,
         category: data.category,
-        summary: data.desc,
-        content: content,
-        open: data.open,
+        summary: data.desc || '',
+        content,
+        open: data.open ?? false,
       };
     })
     .sort((a, b) => dayjs(b.date).valueOf() - dayjs(a.date).valueOf());
@@ -65,9 +58,8 @@ const MainBlog = ({ category, page = 1, basePath = '/blog' }: Props) => {
   const chips = buildChips(allPosts);
   const total = allPosts.filter((p) => p.open).length;
 
-  const filtered = (category
-    ? allPosts.filter((p) => p.category === category)
-    : allPosts
+  const filtered = (
+    category ? allPosts.filter((p) => p.category === category) : allPosts
   ).filter((p) => p.open);
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / POSTS_PER_PAGE));

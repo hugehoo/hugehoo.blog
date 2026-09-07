@@ -2,7 +2,13 @@
 
 import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 
 interface PostFile {
   path: string;
@@ -41,7 +47,9 @@ export default function SecretEditorPage() {
 
   const loadPost = async (postPath: string) => {
     try {
-      const response = await fetch(`/api/editor/post?path=${encodeURIComponent(postPath)}`);
+      const response = await fetch(
+        `/api/editor/post?path=${encodeURIComponent(postPath)}`
+      );
       const data = await response.json();
       setContent(data.content);
       setTitle(data.title || '');
@@ -49,10 +57,10 @@ export default function SecretEditorPage() {
       setDescription(data.description || '');
       setOpen(data.open !== undefined ? data.open : true);
       setSha(data.sha || '');
-      
+
       const pathParts = postPath.split('/');
       setCategory(data.category || '');
-      setSlug(pathParts[pathParts.length - 2]);
+      setSlug(data.slug || pathParts[pathParts.length - 2]);
     } catch (error) {
       console.error('Failed to load post:', error);
     }
@@ -77,6 +85,11 @@ export default function SecretEditorPage() {
   };
 
   const savePost = async () => {
+    if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug)) {
+      alert('Slug는 영문 소문자, 숫자, 하이픈만 사용할 수 있습니다.');
+      return;
+    }
+
     setIsSaving(true);
     try {
       const response = await fetch('/api/editor/save', {
@@ -92,10 +105,10 @@ export default function SecretEditorPage() {
           open,
           sha,
           isNewPost,
-          existingPath: selectedPost
-        })
+          existingPath: selectedPost,
+        }),
       });
-      
+
       if (response.ok) {
         const result = await response.json();
         setSha(result.sha);
@@ -112,14 +125,12 @@ export default function SecretEditorPage() {
     setIsSaving(false);
   };
 
-
-
   return (
     <div className="min-h-screen bg-gray-50 p-4">
       <div className="max-w-6xl mx-auto">
         <div className="bg-white rounded-lg shadow-lg p-6 mb-6">
           <h1 className="text-3xl font-bold mb-6">Secret Blog Editor</h1>
-          
+
           <div className="mb-6">
             <Select onValueChange={handlePostSelection}>
               <SelectTrigger className="w-full">
@@ -127,11 +138,12 @@ export default function SecretEditorPage() {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="new">Create New Post</SelectItem>
-                {existingPosts && existingPosts.map((post) => (
-                  <SelectItem key={post.path} value={post.path}>
-                    {post.name}
-                  </SelectItem>
-                ))}
+                {existingPosts &&
+                  existingPosts.map((post) => (
+                    <SelectItem key={post.path} value={post.path}>
+                      {post.name}
+                    </SelectItem>
+                  ))}
               </SelectContent>
             </Select>
           </div>
@@ -147,7 +159,7 @@ export default function SecretEditorPage() {
                 placeholder="Post title"
               />
             </div>
-            
+
             <div>
               <label className="block text-sm font-medium mb-2">Date</label>
               <input
@@ -157,21 +169,26 @@ export default function SecretEditorPage() {
                 className="w-full px-3 py-2 border rounded-md"
               />
             </div>
-            
+
             <div>
-              <label className="block text-sm font-medium mb-2">Slug (Directory Name)</label>
+              <label className="block text-sm font-medium mb-2">
+                Slug (Directory Name)
+              </label>
               <input
                 type="text"
                 value={slug}
-                onChange={(e) => setSlug(e.target.value)}
+                onChange={(e) => setSlug(e.target.value.toLowerCase())}
                 className="w-full px-3 py-2 border rounded-md"
                 placeholder="url-friendly-name"
+                pattern="[a-z0-9]+(?:-[a-z0-9]+)*"
                 disabled={!isNewPost}
               />
             </div>
-            
+
             <div>
-              <label className="block text-sm font-medium mb-2">Category (Metadata)</label>
+              <label className="block text-sm font-medium mb-2">
+                Category (Metadata)
+              </label>
               <input
                 type="text"
                 value={category}
@@ -181,9 +198,11 @@ export default function SecretEditorPage() {
               />
             </div>
           </div>
-          
+
           <div className="mb-6">
-            <label className="block text-sm font-medium mb-2">Description</label>
+            <label className="block text-sm font-medium mb-2">
+              Description
+            </label>
             <textarea
               value={description}
               onChange={(e) => setDescription(e.target.value)}
@@ -192,7 +211,7 @@ export default function SecretEditorPage() {
               placeholder="Brief description of the post"
             />
           </div>
-          
+
           <div className="mb-6">
             <label className="flex items-center space-x-3">
               <span className="text-sm font-medium">Public Visibility</span>
@@ -209,7 +228,9 @@ export default function SecretEditorPage() {
                   }`}
                 />
               </button>
-              <span className="text-sm text-gray-600">{open ? 'Published' : 'Draft'}</span>
+              <span className="text-sm text-gray-600">
+                {open ? 'Published' : 'Draft'}
+              </span>
             </label>
           </div>
         </div>
@@ -223,9 +244,11 @@ export default function SecretEditorPage() {
               </Button>
             </div>
           </div>
-          
+
           <div>
-            <label className="block text-sm font-medium mb-2">Markdown Content</label>
+            <label className="block text-sm font-medium mb-2">
+              Markdown Content
+            </label>
             <textarea
               value={content}
               onChange={(e) => setContent(e.target.value)}

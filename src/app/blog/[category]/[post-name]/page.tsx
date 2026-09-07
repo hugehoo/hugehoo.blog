@@ -1,101 +1,24 @@
-import styles from '../../TeamPage.module.css';
-import path from 'path';
-import { sync } from 'glob';
-import fs from 'fs';
-import matter from 'gray-matter';
-import readingTime from 'reading-time';
-import PostMarkdown from '@/app/blog/[category]/[post-name]/postMarkdown';
-import TOC from '@/app/blog/toc';
-
-// Type definitions
-interface RouteParams {
-  category: string;
-  'post-name': string;
-  thumbnail?: string;
-  content?: string;
-  date?: string;
-}
+import { notFound, permanentRedirect } from 'next/navigation';
+import { decodeRouteParam, getPostHref } from '@/components/post_list/postHref';
+import { findPostByLegacyPath } from '@/lib/posts';
 
 interface Props {
-  params: RouteParams;
+  params: {
+    category: string;
+    'post-name': string;
+  };
 }
 
-interface PostFrontmatter {
-  title: string;
-  date: string;
-  category?: string;
-  thumbnail?: string;
-  [key: string]: any;
-}
+const LegacyPost = ({ params }: Props) => {
+  const category = decodeRouteParam(params.category);
+  const title = decodeRouteParam(params['post-name']);
+  const post = findPostByLegacyPath(category, title);
 
-interface Post {
-  data: PostFrontmatter;
-  content: string;
-}
-
-// Constants
-const POSTS_PATH = path.join(process.cwd(), '/src/posts');
-const DEFAULT_POST: Post = {
-  data: {
-    title: 'Not Found',
-    date: new Date().toISOString().split('T')[0], // Today's date as fallback
-  },
-  content: 'The requested post was not found.',
-};
-
-const findPostByTitle = (title: string): Post => {
-  if (!title) return DEFAULT_POST;
-
-  try {
-    const folderPath = path.join(POSTS_PATH, '**');
-    const mdxFiles = sync(`${folderPath}/*.mdx`);
-
-    for (const filePath of mdxFiles) {
-      const fileContent = fs.readFileSync(filePath, 'utf8');
-      const { data, content } = matter(fileContent);
-      const postData = data as PostFrontmatter;
-
-      if (postData.title === title) {
-        return { data: postData, content };
-      }
-    }
-
-    return DEFAULT_POST;
-  } catch (error) {
-    console.error('Error finding post:', error);
-    return DEFAULT_POST;
+  if (!post) {
+    notFound();
   }
+
+  permanentRedirect(getPostHref(post.data.slug));
 };
 
-const Post = ({ params }: Props) => {
-  const { category, 'post-name': encodedTitle } = params;
-  const decodedTitle = decodeURIComponent(encodedTitle);
-  const decodedCategory = decodeURIComponent(category);
-
-  const post = findPostByTitle(decodedTitle);
-  const postDate = post?.data?.date ? new Date(post.data.date) : new Date();
-  const readingMinutes = Math.max(1, Math.ceil(readingTime(post.content).minutes));
-
-  return (
-    <div className="blog-page-wrapper">
-      <div className={`${styles.textContainer} blog-layout-container`}>
-        <div className={styles.wrapper}>
-          <PostMarkdown
-            params={{
-              decodedTitle,
-              category: decodedCategory,
-              content: post.content,
-              date: postDate,
-              readingMinutes,
-            }}
-          />
-        </div>
-      </div>
-      <aside className="toc-sidebar">
-        <TOC content={post.content} />
-      </aside>
-    </div>
-  );
-};
-
-export default Post;
+export default LegacyPost;

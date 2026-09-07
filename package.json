@@ -7,7 +7,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "test:book": "node --no-warnings --test src/lib/book.test.ts"
+    "test": "node --no-warnings --experimental-strip-types --test src/lib/book.test.ts src/lib/posts.test.ts src/components/post_list/postHref.test.ts",
+    "test:book": "node --no-warnings --experimental-strip-types --test src/lib/book.test.ts"
   },
   "dependencies": {
     "@radix-ui/react-select": "^2.1.1",

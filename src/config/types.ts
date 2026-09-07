@@ -1,6 +1,6 @@
-
 export interface PostMatter {
   title: string;
+  slug: string;
   date: Date;
   dateString: string;
   thumbnail: string;
