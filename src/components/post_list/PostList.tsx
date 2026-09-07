@@ -20,9 +20,9 @@ const PostList = ({ posts }: Props) => {
   return (
     <ul>
       {visible.map((post) => (
-        <li key={post.title}>
+        <li key={post.slug}>
           <Link
-            href={getPostHref(post.category, post.title)}
+            href={getPostHref(post.slug)}
             className="group flex items-start gap-6 py-7 transition-colors sm:gap-8"
           >
             <div className="min-w-0 flex-1">

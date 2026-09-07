@@ -1,15 +1,38 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { validateGitHubConfig } from '@/config/env';
+import { isValidPostSlug } from '@/lib/posts';
 
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { content, title, date, description, category, slug, open, isNewPost, existingPath, sha } = body;
+    const {
+      content,
+      title,
+      date,
+      description,
+      category,
+      slug,
+      open,
+      isNewPost,
+      existingPath,
+      sha,
+    } = body;
+
+    if (!isValidPostSlug(slug)) {
+      return NextResponse.json(
+        {
+          error:
+            'Slug must contain only lowercase letters, numbers, and hyphens',
+        },
+        { status: 400 }
+      );
+    }
 
     const { token, owner, repo, branch } = validateGitHubConfig();
 
     const frontmatter = `---
 title: "${title}"
+slug: ${slug}
 date: ${date}
 desc: "${description}"
 category: "${category}"
@@ -20,7 +43,7 @@ ${content}`;
 
     // Encode content to base64
     const encodedContent = Buffer.from(frontmatter).toString('base64');
-    
+
     let filePath: string;
     if (isNewPost) {
       filePath = `src/posts/${slug}/index.mdx`;
@@ -46,8 +69,8 @@ ${content}`;
       {
         method: 'PUT',
         headers: {
-          'Authorization': `token ${token}`,
-          'Accept': 'application/vnd.github.v3+json',
+          Authorization: `token ${token}`,
+          Accept: 'application/vnd.github.v3+json',
           'Content-Type': 'application/json',
         },
         body: JSON.stringify(requestBody),
@@ -61,17 +84,20 @@ ${content}`;
     }
 
     const data = await response.json();
-    
-    return NextResponse.json({ 
-      success: true, 
+
+    return NextResponse.json({
+      success: true,
       path: filePath,
-      sha: data.content.sha 
+      sha: data.content.sha,
     });
   } catch (error: any) {
     console.error('Failed to save post:', error);
-    return NextResponse.json({ 
-      error: 'Failed to save post', 
-      details: error.message 
-    }, { status: 500 });
+    return NextResponse.json(
+      {
+        error: 'Failed to save post',
+        details: error.message,
+      },
+      { status: 500 }
+    );
   }
 }

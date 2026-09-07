@@ -5,6 +5,8 @@ import { sync } from 'glob';
 import matter from 'gray-matter';
 import path from 'path';
 import readingTime from 'reading-time';
+import { getPostHref } from '@/components/post_list/postHref';
+import { SITE_URL } from '@/lib/site';
 
 const BASE_PATH = '/src/posts';
 const POSTS_PATH = path.join(process.cwd(), BASE_PATH);
@@ -23,6 +25,7 @@ const parsePost = async (postPath: string): Promise<Post> => {
   return {
     ...postAbstract,
     ...postDetail,
+    url: getPostHref(postDetail.slug),
   };
 };
 
@@ -46,7 +49,9 @@ const parsePostDetail = async (postPath: string) => {
   const { data, content } = matter(file);
   const grayMatter = data as PostMatter;
   const readingMinutes = Math.ceil(readingTime(content).minutes);
-  const dateString = dayjs(grayMatter.date).locale('ko').format('YYYY년 MM월 DD일');
+  const dateString = dayjs(grayMatter.date)
+    .locale('ko')
+    .format('YYYY년 MM월 DD일');
   return { ...grayMatter, dateString, content, readingMinutes };
 };
 
@@ -65,7 +70,9 @@ const sortPostList = (PostList: Post[]) => {
 // 모든 포스트 목록 조회. 블로그 메인 페이지에서 사용
 export const getPostList = async (category?: string): Promise<Post[]> => {
   const postPaths = getPostPaths(category);
-  const postList = await Promise.all(postPaths.map((postPath) => parsePost(postPath)));
+  const postList = await Promise.all(
+    postPaths.map((postPath) => parsePost(postPath))
+  );
   return postList;
 };
 
@@ -76,10 +83,9 @@ export const getSortedPostList = async (category?: string) => {
 
 export const getSitemapPostList = async () => {
   const postList = await getPostList();
-  const baseUrl = 'https://www.d5br5.dev';
   const sitemapPostList = postList.map(({ url }) => ({
     lastModified: new Date(),
-    url: `${baseUrl}${url}`,
+    url: `${SITE_URL}${url}`,
   }));
   return sitemapPostList;
 };
@@ -103,11 +109,13 @@ export const getCategoryDetailList = async () => {
       result[category] = 1;
     }
   }
-  const detailList: CategoryDetail[] = Object.entries(result).map(([category, count]) => ({
-    dirName: category,
-    publicName: getCategoryPublicName(category),
-    count,
-  }));
+  const detailList: CategoryDetail[] = Object.entries(result).map(
+    ([category, count]) => ({
+      dirName: category,
+      publicName: getCategoryPublicName(category),
+      count,
+    })
+  );
 
   return detailList;
 };
