@@ -1,6 +1,6 @@
 import Link from 'next/link';
 
-import { getBooks } from '@/lib/book';
+import { getBookHref, getBooks } from '@/lib/book';
 
 const dateFormatter = new Intl.DateTimeFormat('ko-KR', {
   year: 'numeric',
@@ -26,7 +26,7 @@ export default function BookPage() {
           {books.map((book) => (
             <li key={book.slug}>
               <Link
-                href={`/book/${encodeURIComponent(book.slug)}`}
+                href={getBookHref(book.slug)}
                 className="group grid gap-1 py-5 sm:grid-cols-[8rem_1fr] sm:items-baseline sm:gap-6"
               >
                 <time

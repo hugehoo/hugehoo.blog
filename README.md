@@ -5,11 +5,12 @@
 
 ### Book 기록 추가
 
-`src/books/<slug>.mdx` 파일을 아래 형식으로 추가합니다.
+`src/books/<legacy-slug>.mdx` 파일을 아래 형식으로 추가합니다.
 
 ```md
 ---
 title: '책 제목'
+slug: english-lowercase-slug
 date: 2026-08-10
 author: '저자'
 publisher: '출판사'
@@ -19,6 +20,10 @@ originalTitle: 'Original Title (2024)'
 
 자유로운 독서 기록
 ```
+
+책 URL은 frontmatter의 `slug`를 사용해 `/book/<slug>` 형식으로 생성합니다.
+slug에는 영문 소문자, 숫자, 하이픈만 사용할 수 있으며 모든 책에서 고유해야 합니다.
+기존 파일명 기반 URL은 해당 slug URL로 영구 리다이렉트됩니다.
 
 ### 글 slug 관리
 
