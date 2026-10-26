@@ -1,0 +1,328 @@
+---
+title: "서버를 끄기 전에, 남아 있는 요청의 목적지를 바꾸기"
+slug: goodbye-buzzbooster
+date: 2026-09-25
+desc: "구 SDK의 호출이 남아 있는 서비스를 종료하면서, 응답 계약을 유지하고 Istio 라우팅과 Helm 설정을 gateway로 옮긴 과정입니다."
+category: deployment
+open: true
+---
+
+## 세줄 요약
+
+1. 종료하려는 서비스에 구 SDK의 호출이 남아 있어, 서버를 내리기 전에 클라이언트가 받아들일 수 있는 응답부터 정했습니다.
+2. config에는 기능을 끄는 설정을, 등록된 나머지 SDK API에는 204를 반환하도록 구현하고 Istio에서 요청의 목적지를 API gateway로 바꿨습니다.
+3. 기존 서버를 삭제해도 종료 응답이 유지되도록 라우팅 설정까지 이관했고, SDK 담당자의 구버전 실행 검증과 서버 모니터링으로 결과를 확인했습니다.
+
+최근 버즈부스터 서버를 종료하는 작업을 진행했습니다. 사용하던 기능을 다른 서비스로 옮기고, 더 이상 필요 없는 서버와 주변 리소스를 정리하는 일이었습니다.
+
+기능 이전이 끝나면 서버도 내릴 수 있을 것 같지만, 실제로는 마지막까지 요청이 들어왔습니다. 이미 배포된 앱에 구 SDK가 남아 있었기 때문입니다. 서버에서는 기능을 종료했어도, 사용자의 휴대폰에 설치된 코드는 여전히 설정을 조회하고 이벤트를 보내고 있었습니다.
+
+그렇다고 모든 앱이 업데이트될 때까지 기존 서버를 계속 운영할 수도 없었습니다. 결국 이번 작업은 **남아 있는 클라이언트에게 어떤 응답을 주면서 서버를 종료할 것인가**를 정하는 과정이 됐습니다.
+
+이 글에서는 구 SDK의 응답을 정한 과정부터, Kubernetes·Istio·Helm 설정으로 트래픽을 옮기고 기존 서버를 정리한 과정까지 기록합니다. 설명에 쓰는 도메인과 내부 서비스 이름은 예시로 바꿨습니다.
+
+## 서비스가 종료돼도 요청은 남는다
+
+### 실제 사용과 자동 호출을 구분하기
+
+처음에는 잔존 트래픽부터 조사했습니다. 요청이 있다는 사실만으로 서비스가 아직 사용 중이라고 단정할 수는 없었습니다. 반대로 모두 구 SDK의 흔적이라고 보고 무시해서도 안 됐습니다.
+
+9월 중순의 조사에서는 일부 매체에 출석체크 기능을 신규 기능으로 이전해야 하는 일이 남아 있었고, 다른 매체에서는 구 SDK가 배너 API 등을 호출하는 것으로 보이는 트래픽이 발견됐습니다. 소량의 캠페인 참여 이력도 따로 확인할 필요가 있었습니다.
+
+그래서 매체별 사용 상태를 확인하고 필요한 기능 이전을 진행하는 일과, 구 SDK가 보내는 요청을 처리하는 일을 나눠서 봤습니다. 전자는 사용자에게 제공하던 기능을 이어가는 문제이고, 후자는 이미 배포된 코드와의 호환성을 유지하는 문제였습니다.
+
+> 퇴고용 근거: [9월 16일 잔존 트래픽 조사 공유](https://buzzvil.slack.com/archives/C0YLK2GBG/p1789541157562739), [9월 15일 마이그레이션 진행 논의](https://buzzvil.slack.com/archives/C0YLK2GBG/p1789453399287949)
+
+### 404로 응답하면 끝날까
+
+없는 기능이니 404를 반환하면 될 것 같았습니다. 하지만 SDK 입장에서 실패 응답은 요청을 포기하라는 뜻이 아닐 수 있습니다. 로컬에 이벤트를 저장한 뒤 전송에 실패하면 나중에 다시 보내도록 구현돼 있다면, 서버가 404를 반환하는 동안 같은 요청이 계속 들어옵니다.
+
+SDK 담당자에게 확인한 결과, 구버전에는 일부 이벤트 API가 404를 받아도 로컬 큐를 비우지 않고 재시도하는 경로가 있었습니다. 서버를 그냥 내렸을 때 발생하는 연결 실패나 5xx 역시 종료 의사를 전달하지 못했습니다.
+
+이 때문에 HTTP 상태 코드만 보고 정책을 정하기 어려웠습니다. 같은 404라도 클라이언트 코드가 그 응답을 어떻게 해석하는지에 따라 다음 행동이 달라졌습니다.
+
+> 퇴고용 근거: [구 SDK 응답 정책 논의 전체](https://buzzvil.slack.com/archives/C026QL8Q94Z/p1789636017344139), [이벤트 재시도와 권장 응답에 대한 추가 확인](https://buzzvil.slack.com/archives/C026QL8Q94Z/p1789701730821699)
+
+## 구 SDK가 이해하는 응답을 정하기
+
+### 처음의 일괄 204 처리는 되돌렸다
+
+처음에는 gateway의 기존 legacy 경로에서 인증과 upstream 호출을 제거하고 바로 204를 반환하는 변경을 만들었습니다. upstream은 요청을 넘겨받는 다음 서버를 뜻합니다. 기존 서버가 없어져도 gateway에서 요청을 끝내려는 의도였습니다.
+
+하지만 해당 경로의 구형 SDK·웹 클라이언트가 응답 본문을 JSON으로 파싱한다는 이유로 이 변경을 되돌렸습니다. 204는 성공 상태이지만 본문이 없으므로, 그 경로에서 기대하던 응답을 대신할 수 없다는 판단이었습니다.
+
+이후의 최종안도 일부 경로에 204를 사용합니다. 다만 처음처럼 legacy 경로 전체를 바꾸지 않고, SDK 담당자와 확인한 **HTTP 메서드와 경로 조합에 한해서** 종료 응답을 등록했습니다. 특히 config는 별도로 처리했습니다. 따라서 이 과정은 모든 응답을 204로 통일해도 안전하다는 결론으로 읽으면 안 됩니다.
+
+초기 변경이 실제 사용자 장애를 일으켰다고 단정할 자료는 확인하지 못했습니다. 여기서 기록하는 것은 변경과 되돌리기의 이유입니다.
+
+> 퇴고용 근거: [gateway #321 — legacy 경로 우회](https://github.com/Buzzvil/buzzbenefit-api-gateway/pull/321), [gateway #322 — 응답 호환성을 이유로 되돌리기](https://github.com/Buzzvil/buzzbenefit-api-gateway/pull/322)
+
+### 앞으로 만들 요청과 이미 쌓인 요청
+
+최종적으로 gateway에 구현한 정책은 다음과 같습니다. 아래 경로는 외부 URL의 서비스 접두사를 제거한 뒤 애플리케이션이 받는 경로입니다.
+
+| 대상 | 응답 | 목적 |
+| --- | --- | --- |
+| `GET /sdk/:app_key/config` | 200 + 전체 config JSON, `sdk_enable: false` | SDK가 비활성 설정을 받아 저장하도록 함 |
+| 등록한 나머지 27개 메서드·경로 | 204, 본문 없음 | 잔존 요청을 기존 서버 호출 없이 마무리함 |
+| 등록하지 않은 경로·메서드 | 종료 핸들러에서 가로채지 않음 | 관련 없는 API까지 성공 처리하지 않음 |
+
+config는 SDK가 앞으로 어떻게 동작할지 정하는 설정입니다. SDK 담당자의 분석에 따르면 `sdk_enable: false`를 받아 저장하면 이벤트 생성을 막을 수 있었고, 이후 설정 조회가 실패하더라도 저장한 비활성 상태를 유지했습니다.
+
+반면 이미 로컬 큐에 쌓인 이벤트는 별도로 처리해야 했습니다. 기능을 끄는 설정을 내려도 과거에 만들어진 이벤트가 저절로 사라진다고 볼 수는 없었습니다. 해당 요청에 성공 응답을 주어 클라이언트가 처리를 끝낼 수 있게 한 이유입니다.
+
+이때 204는 실제 보상 지급이나 이벤트 저장이 이루어졌다는 뜻으로 사용한 것이 아닙니다. 종료 대상 기능의 잔존 요청을 받아주기 위한 호환 응답입니다. 정상 운영 중인 쓰기 API에 같은 방식을 적용할 수는 없습니다.
+
+> 퇴고용 근거: [gateway #323 — config 및 27개 종료 응답 구현·회귀 테스트](https://github.com/Buzzvil/buzzbenefit-api-gateway/pull/323), [SDK의 설정 저장·이벤트 생성 동작 분석](https://buzzvil.slack.com/archives/C026QL8Q94Z/p1789641545225199)
+
+### false 하나만 보내서는 안 됐다
+
+config에서 필요한 값은 `sdk_enable: false`였지만, 응답을 그 필드 하나로 줄일 수는 없었습니다.
+
+구 Android SDK에는 config의 다른 필드가 빠지면 파싱에 실패하고, 기능이 켜진 기본값으로 돌아갈 수 있는 경로가 있다는 분석이 있었습니다. 끄려고 보낸 응답을 읽지 못해 계속 켜진 채로 남는 셈입니다.
+
+그래서 SDK 담당자가 제공한 전체 JSON 구조를 유지했습니다. 색상, 플러그인 설정, 빈 목록, 폴링 주기 등의 필드도 함께 반환했습니다. 구현에서는 전체 응답을 비교하는 테스트로 계약을 확인했습니다. 오래된 버전이 기대하는 필드까지 포함해야 했으므로 최신 SDK 코드만 보고 응답을 줄이지 않았습니다.
+
+여기서 배운 점은 종료용 API도 하나의 API라는 것입니다. 더 이상 서비스를 제공하지 않더라도 클라이언트가 정상적으로 해석할 수 있는 형식은 지켜야 했습니다.
+
+> 퇴고용 근거: [SDK 전체 config 권고와 파싱 실패 설명](https://buzzvil.slack.com/archives/C026QL8Q94Z/p1789641545225199), [서버 #1915 — config 비활성화](https://github.com/Buzzvil/buzzbooster-server/pull/1915), [gateway #323](https://github.com/Buzzvil/buzzbenefit-api-gateway/pull/323)
+
+## 앱 수정 없이 요청의 목적지를 바꾸기
+
+응답을 만들었으니 이제 구 SDK의 요청이 gateway에 도착하게 해야 했습니다. SDK가 호출하는 주소를 바꾸지 않고도 가능했던 이유는 외부 URL과 실제 처리 서버 사이에 라우팅 계층이 있었기 때문입니다.
+
+예를 들어 SDK는 계속 아래 주소로 요청합니다.
+
+```text
+GET https://api.example.com/retired/sdk/123/config
+```
+
+앱은 이 주소 뒤에서 어느 Pod가 요청을 처리하는지 알 필요가 없습니다. 서버 쪽에서 주소는 유지한 채 요청을 전달할 목적지를 바꿀 수 있습니다. 이번에는 DNS 변경이나 301·302 리다이렉트 대신, 이미 사용하던 Istio의 HTTP 라우팅 규칙을 수정했습니다.
+
+### Kubernetes의 Pod와 Service
+
+Kubernetes에서 애플리케이션은 Pod 안에서 실행됩니다. Pod는 배포나 장애 복구로 교체될 수 있으므로, 다른 서버가 개별 Pod의 IP를 고정해서 사용하는 방식은 불편합니다.
+
+Service는 이런 Pod 집합을 일정한 이름으로 찾을 수 있게 해줍니다. 이 사례에서는 라우팅 목적지에 `retirement-gateway.gateway.svc.cluster.local` 같은 Service 이름을 사용하고, 그 서비스에 속한 실행 가능한 Pod가 요청을 처리하도록 합니다. Service라는 이름이 남아 있더라도 처리할 Pod가 없다면 정상 응답을 만들 수 없습니다. [Kubernetes Service 문서](https://kubernetes.io/docs/concepts/services-networking/service/)
+
+### 이름은 비슷하지만 역할이 다른 gateway
+
+이번 작업에는 gateway라는 표현이 두 곳에 등장합니다. 하나는 외부 요청을 받아들이는 Istio ingress gateway이고, 다른 하나는 종료 응답을 구현한 API gateway 애플리케이션입니다.
+
+| 구성 요소 | 이번 요청에서 하는 일 |
+| --- | --- |
+| Istio ingress gateway의 Envoy | 외부 HTTP 요청을 받아 실제 라우팅 수행 |
+| Istio `Gateway` 리소스 | 입구에서 받을 호스트·포트·TLS 등의 설정 정의 |
+| Istio `VirtualService` 리소스 | 어떤 메서드·경로를 어디로 보낼지, 경로를 어떻게 바꿀지 정의 |
+| Kubernetes `Service` | 목적지 애플리케이션을 찾을 서비스 이름과 엔드포인트 제공 |
+| API gateway 애플리케이션 | 요청을 받아 config JSON이나 204 응답 생성 |
+
+`Gateway`와 `VirtualService`는 요청을 직접 실행하는 프로그램이 아니라 설정입니다. Istio의 제어 영역인 `istiod`가 설정을 Envoy에 전달하고, Envoy가 요청을 처리할 때 적용합니다. 이번에 사용한 것은 Istio의 리소스이며, 이름이 비슷한 Kubernetes Gateway API와도 구분해야 합니다. [Istio 트래픽 관리 문서](https://istio.io/latest/docs/concepts/traffic-management/)
+
+전환 전후의 논리적인 경로는 다음과 같습니다. 아래의 Service는 별도 프록시 프로세스를 한 번 더 지난다는 뜻이 아니라, Envoy가 목적지 서비스를 식별하는 단위입니다.
+
+```text
+전환 전
+구 SDK → 기존 외부 URL → ingress Envoy
+                         → 기존 서버 Service의 Pod
+                         → 기존 기능 처리
+
+전환 후
+구 SDK → 같은 외부 URL → 같은 ingress Envoy
+                         → API gateway Service의 Pod
+                         → config 200 또는 등록된 경로의 204
+```
+
+기존 서버에 도착한 요청을 다시 gateway로 전달하는 구조가 아닙니다. 기존 서버에 도착하기 전에 ingress에서 목적지를 선택합니다. 그래서 전환된 SDK 요청은 기존 서버가 없어도 처리할 수 있었습니다.
+
+> 퇴고용 근거: [서버 #1916 — 외부 SDK 경로의 목적지를 gateway로 변경](https://github.com/Buzzvil/buzzbooster-server/pull/1916)
+
+### 요청 하나를 설정에 대입해 보기
+
+실제로는 공통 Helm chart의 `gatewayRoutes` 값에 규칙을 추가했습니다. 아래는 전체 운영 설정이 아니라, config 요청 한 개로 매칭·경로 변경·목적지를 설명하기 위해 축약한 예시입니다. 이름과 주소를 바꿨으며 CORS와 나머지 경로는 생략했습니다.
+
+```yaml
+gatewayRoutes:
+  - name: public
+    hosts:
+      - api.example.com
+    http:
+      - name: retired-sdk
+        retries:
+          attempts: 0
+        match:
+          - method:
+              exact: GET
+            uri:
+              regex: '^/retired/sdk/[^/]+/config$'
+        rewrite:
+          uriRegexRewrite:
+            match: '^/retired/(.*)$'
+            rewrite: '/\1'
+        route:
+          - destination:
+              host: retirement-gateway.gateway.svc.cluster.local
+              port:
+                number: 8080
+```
+
+`GET /retired/sdk/123/config`를 대입하면 다음 순서로 읽을 수 있습니다.
+
+1. `hosts`가 요청의 호스트와 맞는지 확인합니다.
+2. `match`에서 GET 메서드와 경로를 확인합니다. `[^/]+`는 슬래시가 없는 한 경로 조각, 여기서는 앱 키에 해당합니다.
+3. `rewrite`가 `/retired/` 접두사를 제거합니다. gateway 애플리케이션은 `/sdk/123/config`를 받습니다.
+4. `destination`에 적힌 Service의 8080 포트를 목적지로 선택합니다.
+5. gateway의 config 핸들러가 200과 비활성 설정을 반환합니다.
+
+실제 설정에는 config를 포함한 28개 메서드·경로를 등록했습니다. `/sdk/` 전체를 포괄적으로 가로채지 않았고, 이미 서버 코드에서 삭제됐지만 구 SDK에는 남아 있는 경로도 포함했습니다. ingress의 목록과 gateway 애플리케이션의 목록이 맞아야 했습니다.
+
+처음에는 기존 서버의 VirtualService 안에서 구체적인 SDK 규칙을 기존 `/buzzbooster/` fallback 앞에 추가했습니다. 같은 VirtualService의 HTTP 규칙은 순서대로 평가하므로, SDK 요청만 먼저 gateway로 보내고 나머지는 기존 경로로 남길 수 있었습니다.
+
+또한 이 변경은 외부 ingress를 통과하는 요청에 적용됩니다. 클러스터 안에서 기존 서버의 내부 Service 이름을 직접 호출하는 작업까지 자동으로 전환되는 것은 아닙니다. 그런 호출은 별도로 조사해야 했습니다.
+
+> 퇴고용 근거: [서버 #1916의 최종 diff와 적용 순서](https://github.com/Buzzvil/buzzbooster-server/pull/1916/files), [gateway #323의 등록 경로와 미등록 요청 테스트](https://github.com/Buzzvil/buzzbenefit-api-gateway/pull/323/files)
+
+### CORS와 OPTIONS도 같은 길로 가야 한다
+
+실제 API 메서드만 옮기면 끝나는 것도 아니었습니다. 브라우저는 요청 조건에 따라 실제 요청 전에 OPTIONS preflight를 보냅니다. 다른 출처의 서버에 해당 메서드와 헤더로 요청해도 되는지 먼저 확인하는 절차입니다.
+
+예를 들어 토큰 삭제 요청은 DELETE입니다. 실제 DELETE 경로만 gateway로 보내고 OPTIONS가 기존 경로로 빠지거나, CORS의 허용 메서드에 DELETE가 빠져 있으면 브라우저에서 요청이 실패할 수 있습니다.
+
+최종 설정에는 28개 실제 요청 조건과 대응하는 28개 OPTIONS 조건이 들어갔습니다. OPTIONS는 경로뿐 아니라 `access-control-request-method` 헤더도 함께 확인해 실제 요청과 같은 라우트를 선택하도록 했습니다. 기존 허용 origin·header 정책을 유지하고 DELETE도 허용했습니다.
+
+즉 OPTIONS가 반드시 애플리케이션의 204 핸들러까지 가야 한다는 뜻은 아닙니다. ingress에서 올바른 라우트와 CORS 정책을 선택해야 합니다. API 응답 확인과 브라우저의 사전 요청 확인을 함께 봐야 했던 이유입니다.
+
+> 퇴고용 근거: [CORS·preflight 누락을 지적한 리뷰](https://buzzvil.slack.com/archives/C026QL8Q94Z/p1789707503373759), [최종 OPTIONS·CORS 설정](https://github.com/Buzzvil/buzzbooster-server/pull/1916/files)
+
+## Helm 파일을 바꾸면 어떻게 실제 요청에 반영될까
+
+여기까지 보면 `values.prod.yaml`이 요청을 직접 처리하는 것처럼 느껴질 수도 있습니다. 실제로 이 파일은 Helm chart에 전달할 입력값입니다.
+
+Helm chart에는 리소스 정의를 만드는 템플릿이 있고, values에는 환경별 값을 넣습니다. `gatewayRoutes`는 이번에 사용한 공통 chart가 정한 입력 항목이지 Kubernetes나 Istio가 자체적으로 이해하는 표준 필드는 아닙니다. chart가 이 값을 사용해 VirtualService 같은 리소스 정의를 생성합니다. [Helm chart 문서](https://helm.sh/docs/topics/charts/)
+
+이 사례의 설정 반영 흐름을 단순화하면 다음과 같습니다.
+
+```text
+Git의 values.prod.yaml + 공통 Helm chart
+    ↓ 템플릿 렌더링
+VirtualService 등 Kubernetes 리소스 정의
+    ↓ 배포·Argo CD 동기화로 클러스터에 적용
+Istio가 변경된 설정을 읽어 Envoy에 전달
+    ↓
+Envoy가 새 규칙으로 요청을 라우팅
+```
+
+Argo CD는 Git에 선언한 상태와 클러스터의 상태를 맞추는 도구입니다. Helm chart를 렌더링하는 구성에서도 실제 리소스의 동기화와 삭제는 Argo CD 정책의 영향을 받습니다. 그래서 Git에 파일을 커밋했다는 사실과 실제 ingress에 설정이 반영됐다는 사실은 구분해야 했습니다.
+
+검증에서도 두 가지를 따로 봤습니다. 먼저 Helm 렌더링으로 원하는 리소스가 만들어지는지 확인하고, 운영 적용 단계에서는 외부 URL의 응답과 ingress의 라우팅 설정을 확인하는 순서입니다. gateway 코드를 먼저 준비한 뒤 ingress 목적지를 바꾸도록 배포 순서를 정한 것도 같은 이유입니다.
+
+> 퇴고용 근거: [서버 #1916 — gateway 선배포 및 Helm 렌더 검증](https://github.com/Buzzvil/buzzbooster-server/pull/1916), [gateway #324 — 렌더 동등성 및 ingress 확인 조건](https://github.com/Buzzvil/buzzbenefit-api-gateway/pull/324)
+
+## 목적지를 바꾼 뒤에도 서버를 바로 삭제할 수 없었다
+
+### 요청을 처리하는 곳과 설정을 관리하는 곳
+
+9월 18일에는 SDK 요청을 gateway로 돌리고 config는 200, 등록한 나머지 SDK 경로는 204를 반환하도록 반영했다고 공유했습니다. 이제 종료 응답을 위해 기존 서버의 애플리케이션을 실행할 필요는 없어졌습니다.
+
+그런데 라우팅 규칙은 여전히 기존 서버의 Helm 설정에 들어 있었습니다. 요청을 처리하는 곳은 gateway인데, 그 요청을 gateway로 보내라는 규칙은 종료할 서버 쪽에서 관리하는 상태였습니다.
+
+```text
+트래픽 전환 직후
+기존 서버의 chart 설정
+    └─ VirtualService → API gateway
+
+설정 이관 후
+API gateway의 chart 설정
+    └─ VirtualService → API gateway
+```
+
+여기서 설정의 소유권은 Kubernetes `ownerReferences` 필드 자체를 뜻하지 않습니다. 어느 chart와 Argo CD Application이 그 라우팅 리소스의 생성·변경·삭제를 관리하는지를 뜻합니다.
+
+기존 서버의 리소스를 한꺼번에 정리하면 gateway로 가는 길도 함께 사라질 수 있었습니다. 따라서 Pod를 0개로 줄이는 것과 서비스의 모든 리소스를 삭제하는 것은 별개의 단계로 진행해야 했습니다.
+
+> 퇴고용 근거: [9월 18일 트래픽 전환 완료 공유](https://buzzvil.slack.com/archives/C026QL8Q94Z/p1789711598371239), [gateway #324 — 라우트 관리 주체 이관](https://github.com/Buzzvil/buzzbenefit-api-gateway/pull/324)
+
+### 새 규칙을 추가한 뒤 기존 fallback까지 정리하기
+
+gateway 쪽 values에 기존 SDK 규칙을 옮기면서 메서드·경로, OPTIONS, rewrite, 목적지, retry와 CORS 설정을 그대로 유지했습니다. 이후 기존 서버 쪽의 외부 VirtualService를 제거하는 변경을 진행했습니다.
+
+이관 순서는 새 규칙 추가, gateway 배포와 ingress 반영 확인, 기존 규칙 제거, 외부 응답 재확인으로 잡았습니다. 다만 같은 호스트를 사용하는 두 VirtualService에 규칙이 잠시 공존하므로 주의할 점이 있었습니다.
+
+**같은 VirtualService 안의 규칙 순서는 보장되지만, 서로 다른 VirtualService를 합칠 때의 규칙 순서를 같은 방식으로 가정할 수는 없습니다.** Istio의 안내도 리소스 사이의 순서 의존성을 피하도록 설명합니다. [Istio 트래픽 관리 모범 사례](https://istio.io/latest/docs/ops/best-practices/traffic-management/)
+
+그래서 URL에서 정상 응답을 받았다는 사실만으로 새 설정이 사용 중이라고 판단할 수는 없었습니다. 기존 규칙도 같은 응답을 만들 수 있었기 때문입니다. 이관 PR에는 ingress Envoy의 실제 설정에서 새 라우트가 반영됐는지 확인하도록 명시했습니다.
+
+기존 서버의 SDK 전용 규칙만 지우고 포괄적인 `/buzzbooster/` fallback을 남기는 것도 문제였습니다. 그 규칙이 gateway 쪽 SDK 규칙보다 먼저 선택되면, Pod를 0개로 줄인 기존 서버로 요청이 갈 수 있었습니다. 최종 변경에서는 기존 서버 쪽 외부 VirtualService를 fallback까지 함께 제거했습니다.
+
+이것은 응답 코드 변경과는 다른 문제였습니다. 응답을 올바르게 구현해도 요청이 그 코드에 도달하지 않으면 소용이 없었습니다.
+
+> 퇴고용 근거: [gateway #324 — 중복 라우트와 ingress 검증 조건](https://github.com/Buzzvil/buzzbenefit-api-gateway/pull/324), [서버 #1920 — SDK 규칙과 fallback을 포함한 외부 VirtualService 제거](https://github.com/Buzzvil/buzzbooster-server/pull/1920)
+
+### Pod 수만 0으로 바꾸면 끝일까
+
+서버 중지 설정에는 replica 수를 0으로 만드는 것 외에도 autoscaling 비활성화와 예약 작업 중지가 포함됐습니다. 자동 확장이나 예약 실행이 남아 있으면 나중에 실행 주체가 다시 생길 수 있기 때문입니다.
+
+웹 요청이 없어졌더라도 CronWorkflow나 Airflow 작업은 DB와 캐시를 사용할 수 있습니다. 종료 순서를 정할 때는 외부 트래픽뿐 아니라 백그라운드 실행과 재배포 경로도 확인해야 했습니다. 서버 종료 PR은 여러 환경의 replica·autoscaling 설정, CronWorkflow 12개와 예약 E2E 실행 등을 정리했습니다. 후속 변경에서는 Gitploy 환경 목록을 비우고 배포 이벤트로 실행되는 workflow를 제거했습니다.
+
+다만 과거 ref에 남은 workflow나 이미 진행 중인 실행까지 이 변경만으로 차단되는 것은 아닙니다. Gitploy 잠금·비활성화와 실행 중인 작업 종료는 별도 확인 항목으로 남겼고, preview workflow 제거 PR도 조사 시점에는 열려 있었습니다. 따라서 모든 재배포 경로가 완전히 차단됐다고 표현하지는 않습니다.
+
+Argo CD에도 별도 마무리가 필요했습니다. 이 환경의 상위 Application은 `prune: false`여서 Git에서 하위 Application 선언을 지우는 것만으로 기존 리소스가 자동 삭제되지는 않았습니다. 상위 Application을 Refresh/Sync한 뒤 대상 Application들을 명시적으로 cascade 삭제하는 절차로 정리했습니다. 여기서 cascade 삭제는 Application이 관리하던 리소스도 함께 삭제하는 작업입니다.
+
+9월 21일에는 대상 5개 Application의 정리를 요청했고 운영 담당자로부터 완료 답변을 받았습니다. 반면 이후 S3 버킷 정리 논의에서는 바로 삭제하지 않고 유예기간을 두기로 했습니다. 따라서 서버 종료와 주변 저장 자원 전체의 삭제 완료를 같은 말로 표현할 수는 없습니다.
+
+> 퇴고용 근거: [서버 #1917 — 워크로드 중지](https://github.com/Buzzvil/buzzbooster-server/pull/1917), [서버 #1921 — 배포 경로 정리와 잔여 확인 사항](https://github.com/Buzzvil/buzzbooster-server/pull/1921), [서버 #1919 — 별도 preview workflow 제거 PR](https://github.com/Buzzvil/buzzbooster-server/pull/1919), [Argo #1034 — Application 선언 제거 및 수동 삭제 절차](https://github.com/Buzzvil/argocd-manifests/pull/1034), [실제 정리 완료와 S3 삭제 유예 논의](https://buzzvil.slack.com/archives/CC4EEBCKW/p1789973078130429)
+
+## 무엇으로 안전한 종료를 확인했나
+
+서버에서 200이나 204가 반환되는 것만으로는 충분하지 않았습니다. 앞서 문제가 됐던 것도 그 응답을 받은 구 SDK가 어떻게 행동하느냐였기 때문입니다.
+
+9월 22일 SDK 담당자는 API 변화가 있었던 버전들을 중심으로 iOS 5개 세대와 Android 5개 버전을 실제 빌드해 프로덕션 gateway에 연결한 검증 결과를 공유했습니다. 제가 모든 버전을 직접 실행한 결과가 아니라, SDK 담당자가 수행해 전달한 결과입니다.
+
+| 확인 항목 | SDK 담당자의 검증 보고 |
+| --- | --- |
+| 실행한 버전에서의 크래시 | 0건 |
+| 이벤트 큐 적체 | 0건 |
+| 재시도 폭주 | 관찰되지 않음 |
+| config 파싱 및 저장 | 검증한 전 세대에서 비활성 설정 파싱·영구 저장 확인 |
+| 오래된 버전의 폴링 | 24시간 주기로 늘어난 것 확인 |
+| Sentry | 전환 시각 이후 `Rejected by server`가 0으로 감소, 그 외 신규 이슈 없음으로 보고 |
+
+같은 스레드에서 저는 서버 측도 계속 모니터링 중이며 큰 이슈가 없다고 공유했습니다. 이 글에서 확인할 수 있는 결과는 해당 버전들의 실행 검증과 당시 서버 관찰입니다. 모든 사용자 기기에서 오류가 없었다거나, 외부 요청 자체가 완전히 0이 됐다는 의미로 확대하지는 않습니다.
+
+최종적으로는 기존 서버가 맡던 종료 대상 SDK 요청을 gateway에서 처리하도록 전환했고, 기존 서버의 실행 중지와 Argo 리소스 정리까지 진행했습니다. 기능을 끈 설정을 아직 받지 못한 기기나 과거 요청에 응답하기 위한 gateway 경로는 계속 남겨두었습니다.
+
+> 퇴고용 근거: [9월 22일 SDK 검증 완료 보고](https://buzzvil.slack.com/archives/C026QL8Q94Z/p1790044899289429), [서버 측 모니터링 결과 공유](https://buzzvil.slack.com/archives/C026QL8Q94Z/p1790045086976319), [Argo 리소스 정리 완료 답변](https://buzzvil.slack.com/archives/CC4EEBCKW/p1789974268066629)
+
+## 이번 종료 작업에서 배운 것
+
+처음에는 남은 트래픽을 확인하고 서버를 끄는 작업으로 생각했습니다. 실제로는 오래된 SDK가 성공과 실패를 해석하는 방식, HTTP 요청이 목적지를 찾아가는 과정, 라우팅 리소스의 관리 주체까지 함께 봐야 했습니다.
+
+특히 요청을 처리하는 애플리케이션과 그 요청을 보내는 설정의 수명이 다를 수 있다는 점이 기억에 남습니다. 기존 서버의 Pod를 없애도 길 안내 설정은 당분간 필요했고, 그 설정을 gateway 쪽으로 옮긴 뒤에야 기존 서버의 리소스를 정리할 수 있었습니다.
+
+다음에 비슷한 종료를 진행한다면 기능 이전 대상, 구 클라이언트의 응답 계약, 내부 호출과 예약 작업, 라우팅 설정을 관리하는 Application을 처음부터 같이 적어둘 것 같습니다. 어느 것을 먼저 멈춰야 하고 무엇을 마지막까지 남겨야 하는지 정하기가 훨씬 쉬워질 것입니다.
+
+## 참고 자료
+
+- [Kubernetes Service](https://kubernetes.io/docs/concepts/services-networking/service/)
+- [Istio Traffic Management](https://istio.io/latest/docs/concepts/traffic-management/)
+- [Istio Traffic Management Best Practices](https://istio.io/latest/docs/ops/best-practices/traffic-management/)
+- [Helm Charts](https://helm.sh/docs/topics/charts/)
+- [Argo CD Automated Sync Policy와 pruning](https://argo-cd.readthedocs.io/en/stable/user-guide/auto_sync/)
+- [Argo CD Application 삭제](https://argo-cd.readthedocs.io/en/stable/user-guide/app_deletion/)
+
+## 퇴고용 작업 타임라인
+
+아래는 검수용 기록입니다. 날짜는 한국 시간 기준이며, PR 병합과 실제 운영 적용·검증 보고를 구분했습니다. 본문의 `퇴고용 근거` 인용문과 함께 퇴고 후 제거할 수 있습니다.
+
+| 날짜 | 주요 변경 또는 확인 | 확인된 결과와 범위 | 근거 |
+| --- | --- | --- | --- |
+| 9월 15~16일 | 매체별 기능 이전 및 잔존 트래픽 조사 | 기능 이전이 필요한 호출과 구 SDK 자동 호출 추정 사례를 구분 | [진행 논의](https://buzzvil.slack.com/archives/C0YLK2GBG/p1789453399287949), [조사 공유](https://buzzvil.slack.com/archives/C0YLK2GBG/p1789541157562739) |
+| 9월 17일 | legacy gateway 경로의 일괄 204 변경 후 되돌리기 | JSON 응답 호환성을 이유로 기존 동작 복원. 실제 사용자 장애 발생 여부는 미확인 | [#321](https://github.com/Buzzvil/buzzbenefit-api-gateway/pull/321), [#322](https://github.com/Buzzvil/buzzbenefit-api-gateway/pull/322) |
+| 9월 17일 | SDK 담당자와 종료 응답 협의, 서버 config 비활성화 PR 병합 | 전체 config 유지와 재시도 처리 필요성 확인 | [논의](https://buzzvil.slack.com/archives/C026QL8Q94Z/p1789636017344139), [#1915](https://github.com/Buzzvil/buzzbooster-server/pull/1915) |
+| 9월 18일 | gateway 종료 핸들러·외부 SDK 라우팅 PR 병합 | config 1개와 나머지 27개 메서드·경로 처리, OPTIONS·CORS 반영 | [#323](https://github.com/Buzzvil/buzzbenefit-api-gateway/pull/323), [#1916](https://github.com/Buzzvil/buzzbooster-server/pull/1916) |
+| 9월 18일 15:06 | 운영 트래픽 전환 완료 공유 | config 200과 나머지 등록 SDK 경로 204 적용을 작업자가 보고 | [전환 보고](https://buzzvil.slack.com/archives/C026QL8Q94Z/p1789711598371239) |
+| 9월 18일 | 워크로드 중지 PR 병합 및 진행 상황 공유 | 중지 설정과 Helm 렌더 검증 확인. PR 병합 자체를 전 환경 적용 완료로 간주하지 않음 | [#1917](https://github.com/Buzzvil/buzzbooster-server/pull/1917), [진행 공유](https://buzzvil.slack.com/archives/C02T3N72P/p1789716772921369) |
+| 9월 21일 | 라우트 관리 주체 이관·기존 외부 VirtualService 제거 PR 병합 | gateway 측 규칙 추가, 기존 서버 측 SDK 규칙과 fallback 제거 | [#324](https://github.com/Buzzvil/buzzbenefit-api-gateway/pull/324), [#1920](https://github.com/Buzzvil/buzzbooster-server/pull/1920) |
+| 9월 21일 | Argo Application 및 배포 경로 정리 | 선언 제거 PR과 별도로 실제 Application 정리 완료 답변 확인. 과거 ref·진행 중 실행의 완전 차단은 별도 확인 필요 | [Argo #1034](https://github.com/Buzzvil/argocd-manifests/pull/1034), [서버 #1921](https://github.com/Buzzvil/buzzbooster-server/pull/1921), [완료 보고](https://buzzvil.slack.com/archives/CC4EEBCKW/p1789974268066629) |
+| 9월 22일 | SDK 사후 검증 및 서버 관찰 공유 | iOS 5개 세대·Android 5개 버전에서 크래시·큐 적체 0, 재시도 폭주 없음으로 보고. 서버 측 큰 이슈 없음 | [SDK 결과](https://buzzvil.slack.com/archives/C026QL8Q94Z/p1790044899289429), [서버 관찰](https://buzzvil.slack.com/archives/C026QL8Q94Z/p1790045086976319) |
+| 후속 정리 논의 | S3 삭제 유예 | 서버 종료와 저장 자원 전체 삭제는 구분. 해당 스레드에서 유예 합의 확인 | [정리 스레드 후속 답변](https://buzzvil.slack.com/archives/CC4EEBCKW/p1789973078130429) |
