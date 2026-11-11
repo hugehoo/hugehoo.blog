@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="440" height="914" viewBox="0 0 440 914" role="img" aria-labelledby="title desc">
+  <title id="title">CS 문의 급증 감지와 Jev 분류 흐름</title>
+  <desc id="desc">원본 CS를 저장한 뒤 Redis로 캠페인별 고유 사용자 수를 집계한다. 급증 기준을 넘을 때 최근 최대 20건을 Jev로 분류하고 Slack으로 문의량과 유형을 알린다. 기준 미달이면 집계를 계속하며, 분류 실패 시에도 문의량 알림을 보낸다. 아직 운영 효과를 검증하지 않은 MVP 설계다.</desc>
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto" markerUnits="userSpaceOnUse">
+      <path d="M1 1 8 5 1 9" fill="none" stroke="#64748b" stroke-width="2"/>
+    </marker>
+  </defs>
+  <rect width="440" height="914" rx="20" fill="#f8fafc"/>
+  <g font-family="Pretendard, 'Apple SD Gothic Neo', 'Noto Sans KR', sans-serif" text-anchor="middle">
+    <text x="220" y="40" font-size="16" font-weight="600" fill="#475569">MVP 설계 · 운영 효과 미검증</text>
+    <text x="220" y="77" font-size="26" font-weight="700" fill="#0f172a">문의가 알림이 되기까지</text>
+
+    <rect x="30" y="108" width="380" height="92" rx="14" fill="#fff" stroke="#cbd5e1"/>
+    <text x="220" y="145" font-size="23" font-weight="700" fill="#0f172a">1. 사용자 문의 접수</text>
+    <text x="220" y="178" font-size="20" fill="#475569">기존 CS 데이터베이스에 저장</text>
+    <path d="M220 201V236" stroke="#64748b" stroke-width="2" marker-end="url(#arrow)"/>
+
+    <rect x="30" y="246" width="380" height="110" rx="14" fill="#fff" stroke="#cbd5e1"/>
+    <text x="220" y="282" font-size="23" font-weight="700" fill="#0f172a">2. Redis로 문의량 집계</text>
+    <text x="220" y="313" font-size="20" fill="#475569">캠페인별 · 5 / 15 / 60분</text>
+    <text x="220" y="340" font-size="20" fill="#475569">같은 사용자의 반복 문의는 한 명</text>
+    <path d="M220 357V392" stroke="#64748b" stroke-width="2" marker-end="url(#arrow)"/>
+
+    <rect x="30" y="402" width="380" height="92" rx="14" fill="#fff7ed" stroke="#c2410c" stroke-width="2"/>
+    <text x="220" y="439" font-size="23" font-weight="700" fill="#9a3412">3. 급증 기준 확인</text>
+    <text x="220" y="472" font-size="20" fill="#9a3412">기준 미달이면 집계 계속</text>
+    <path d="M220 495V551" stroke="#64748b" stroke-width="2" marker-end="url(#arrow)"/>
+    <rect x="229" y="507" width="103" height="30" rx="7" fill="#f8fafc"/>
+    <text x="280" y="529" font-size="19" font-weight="600" fill="#9a3412">기준 충족</text>
+
+    <rect x="30" y="562" width="380" height="110" rx="14" fill="#eff6ff" stroke="#1d4ed8" stroke-width="2"/>
+    <text x="220" y="598" font-size="23" font-weight="700" fill="#1e40af">4. Jev로 문의 유형 분류</text>
+    <text x="220" y="629" font-size="20" fill="#1e40af">최근 문의 최대 20건</text>
+    <text x="220" y="656" font-size="20" fill="#1e40af">보상 미지급 · 지급 지연 등</text>
+    <path d="M220 673V708" stroke="#64748b" stroke-width="2" marker-end="url(#arrow)"/>
+
+    <rect x="30" y="718" width="380" height="110" rx="14" fill="#f0fdf4" stroke="#15803d"/>
+    <text x="220" y="754" font-size="23" font-weight="700" fill="#166534">5. Slack에 상황 알림</text>
+    <text x="220" y="785" font-size="20" fill="#166534">문의량 + 분류한 표본의 유형</text>
+    <text x="220" y="812" font-size="20" fill="#166534">캠페인별 60분 알림 간격</text>
+
+    <text x="220" y="865" font-size="19" font-weight="600" fill="#334155">Jev 분류가 실패해도</text>
+    <text x="220" y="891" font-size="19" fill="#334155">문의량 알림은 보낸다.</text>
+  </g>
+</svg>
