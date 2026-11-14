@@ -41,6 +41,12 @@ if err := p.Produce(msg, deliveryCh); err != nil {
 }
 ```
 
+<figure style="max-width: 480px; margin: 0 auto">
+
+![Produce()가 ProduceChannel()을 거치지 않고 Go 본문의 주소와 길이를 librdkafka에 넘기면, librdkafka가 본문 1 KiB를 C 메모리에 복사한다.](produce-direct-copy.png)
+
+</figure>
+
 같은 1 KiB 메시지를 `Produce(msg, deliveryCh)`에 넘기면, 호출한 고루틴이 `*kafka.Message` 포인터를 내부 함수 `p.produce`에 바로 전달한다. 채널 방식에서 SDK 고루틴이 포인터를 꺼낸 뒤 호출하던 바로 그 함수다. [Produce()의 직접 호출](https://github.com/confluentinc/confluent-kafka-go/blob/v2.12.0/kafka/producer.go#L308-L314) · [채널을 읽은 뒤의 호출](https://github.com/confluentinc/confluent-kafka-go/blob/v2.12.0/kafka/producer.go#L615-L624)
 
 여기서부터 본문을 복사하는 과정은 같다. SDK가 `msg.Value`의 시작 주소와 길이를 넘기면, librdkafka가 그 주소에서 1,024바이트를 읽어 C 메모리에 복사한다. 두 방식 사이에 생기는 차이는 **애플리케이션이 다음 줄로 넘어갈 때 복사가 어디까지 끝났는가**다. [두 방식이 공유하는 복사 코드](https://github.com/confluentinc/confluent-kafka-go/blob/v2.12.0/kafka/producer.go#L280-L285)
