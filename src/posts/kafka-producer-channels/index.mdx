@@ -15,6 +15,17 @@ open: false
 p.ProduceChannel() <- msg
 ```
 
+`ProduceChannel()`의 타입은 `chan *kafka.Message`다. 본문이 1 KiB인 메시지가 버퍼에서 대기하는 동안, 채널 한 칸에서 본문까지 따라가 보면 이렇게 생겼다.
+
+```text
+채널 버퍼 한 칸          Go의 Message 구조체       Go의 바이트 배열
+[포인터 8바이트] ──────▶ [Value []byte] ────────▶ [메시지 본문 1 KiB]
+```
+
+64비트 환경에서 채널에 넣을 때 복사되는 값은 8바이트짜리 포인터 하나다. 본문은 애플리케이션이 만든 바이트 배열에 그대로 있고, `Message.Value`가 그 배열을 가리킨다. 메시지가 버퍼에서 기다리는 동안에는 이 참조를 따라 본문에 닿을 수 있어서 Go의 가비지 컬렉터도 본문을 회수하지 않는다. [Message 구조체 정의](https://github.com/confluentinc/confluent-kafka-go/blob/v2.12.0/kafka/message.go#L72-L76)
+
+본문을 복사하는 시점은 SDK 고루틴이 메시지를 꺼내 librdkafka에 넘길 때다. 이때 librdkafka가 본문 바이트를 C 쪽 메모리에 복사해 전송에 사용한다. [본문을 복사하는 발행 코드](https://github.com/confluentinc/confluent-kafka-go/blob/v2.12.0/kafka/producer.go#L280-L285)
+
 이 줄이 끝나면 Go 채널이 메시지를 받아들인 상태다. SDK의 고루틴이 채널에서 메시지를 꺼내 librdkafka의 전송 큐에 넣는다. 전송 큐가 가득 차면 고루틴이 먼저 기다린다. 그동안 애플리케이션은 Go 채널의 빈자리에 계속 쓸 수 있고, 그 자리까지 다 차면 위 줄에서 기다리게 된다. [SDK가 채널에서 메시지를 읽는 코드](https://github.com/confluentinc/confluent-kafka-go/blob/v2.12.0/kafka/producer.go#L615-L624)
 
 ## Produce()로 전송 큐에 넣기
