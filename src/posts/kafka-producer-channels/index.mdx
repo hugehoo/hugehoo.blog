@@ -62,6 +62,10 @@ SDK는 0을 그대로 `make(chan *Message, 0)`에 넘긴다. 채널과 이를 �
 
 2026년 9월 1일, buzzscreen-api에서 이벤트용·로그용 Kafka 프로듀서 두 개의 버퍼를 줄였다. 두 프로듀서 모두 `go.produce.channel.size`를 100만에서 1로, `go.events.channel.size`를 100만에서 1,000으로 바꿨다. 따라서 이 배포에서 관측한 절감량에는 두 종류의 채널이 모두 들어 있다. [배포된 설정](https://github.com/Buzzvil/buzzscreen-api/pull/7591/files)
 
+![9월 1일 정오 무렵 Go Total과 Heap Total이 함께 낮아진 그래프](go-memory-september-1.png)
+
+*8월 31일~9월 5일 buzzscreen-api의 평균 Go 메모리 사용량(cgo 제외, MiB). 9월 1일 정오 무렵 두 지표가 낮아졌고, 이후 며칠 동안 배포 전보다 낮은 수준을 유지했다.*
+
 오전 11시 50분부터 정오까지(KST)는 구버전과 신버전이 동시에 트래픽을 받았다. 그 10분간의 Pyroscope 프로파일에서 프로듀서 생성 함수(`newConfluentProducer`)가 차지한 보유 힙 비중은 **24.39%에서 2.16%로** 줄었다. CPU 샘플 중 GC와 힙 스캔에 쓰인 비중도 13.09%에서 9.80%로 3.29%p 낮아졌다.
 
 버전마다 프로파일에 잡힌 파드 수가 달라서 힙 합계를 그대로 비교하기는 어렵다. 대신 각 파드가 한 번씩 읽는 같은 크기의 GeoDB 파일(68.76 MiB)을 기준으로 환산했다. 프로듀서 생성 경로에 남은 힙은 파드당 약 54.1 MiB에서 3.5 MiB로, **약 50.6 MiB 줄어든 것으로 추정됐다.**
