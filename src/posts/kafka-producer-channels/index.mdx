@@ -7,21 +7,17 @@ category: go
 open: false
 ---
 
-우리 서버는 Kafka에 메시지를 보낼 때 `p.Produce(msg, deliveryCh)`를 호출한다. 그런데 Go 클라이언트의 초기화 코드를 열어 보니 메시지 포인터 100만 개가 들어가는 채널도 만들고 있었다. 발행 코드에는 채널에 쓰는 줄이 하나도 없는데, 이 공간은 어디에 쓰일까?
+`confluent-kafka-go`에는 Kafka 메시지를 발행하는 방식이 두 가지 있다. 하나는 `ProduceChannel()`로 얻은 Go 채널에 메시지를 쓰는 방식이고, 다른 하나는 `Produce()` 함수에 메시지를 넘기는 방식이다. 둘 다 실제 전송은 librdkafka라는 C 라이브러리에 맡긴다. 차이는 메시지가 그 라이브러리의 전송 큐에 도달하는 과정에 있다.
 
-## 채널에 메시지를 넣던 방식
-
-`confluent-kafka-go`에는 원래부터 두 가지 발행 방식이 있었다. 메시지를 함수에 넘기는 `Produce()`와 Go 채널에 메시지를 쓰는 방식이다. 2016년 최초 구현에서는 이 채널이 공개 필드였고, 이후 `ProduceChannel()` 메서드로 꺼내 쓰게 됐다. [최초 구현](https://github.com/confluentinc/confluent-kafka-go/blob/65ae73b/kafka/producer.go) · [메서드를 추가한 커밋](https://github.com/confluentinc/confluent-kafka-go/commit/dab3c94)
+## ProduceChannel()로 채널에 쓰기
 
 ```go
 p.ProduceChannel() <- msg
 ```
 
-이 한 줄이 끝나면 애플리케이션은 다음 일을 할 수 있다. 채널에서 메시지를 꺼내는 건 SDK의 고루틴이다. 이 고루틴이 Kafka 전송을 담당하는 C 라이브러리인 librdkafka의 큐에 메시지를 넘긴다. 전송 큐가 차면 고루틴이 기다리고, 그동안 Go 채널까지 차면 위 한 줄에서 애플리케이션도 기다린다. [채널을 읽는 고루틴](https://github.com/confluentinc/confluent-kafka-go/blob/v2.12.0/kafka/producer.go#L615-L624)
+이 줄이 끝나면 Go 채널이 메시지를 받아들인 상태다. SDK의 고루틴이 채널에서 메시지를 꺼내 librdkafka의 전송 큐에 넣는다. 전송 큐가 가득 차면 고루틴이 먼저 기다린다. 그동안 애플리케이션은 Go 채널의 빈자리에 계속 쓸 수 있고, 그 자리까지 다 차면 위 줄에서 기다리게 된다. [SDK가 채널에서 메시지를 읽는 코드](https://github.com/confluentinc/confluent-kafka-go/blob/v2.12.0/kafka/producer.go#L615-L624)
 
-## 지금은 Produce()로 보낸다
-
-2022년 11월, Confluent는 `ProduceChannel()`을 deprecated로 표시하고 `Produce()` 사용을 권장했다. 같은 변경에서 채널로 발행할 때는 대기 건수를 세는 `Len()`이나 남은 전송을 기다리는 `Flush()`의 결과를 신뢰하기 어렵다는 점도 문서에 명시했다. [Confluent PR #894](https://github.com/confluentinc/confluent-kafka-go/pull/894)
+## Produce()로 전송 큐에 넣기
 
 ```go
 if err := p.Produce(msg, deliveryCh); err != nil {
@@ -29,7 +25,11 @@ if err := p.Produce(msg, deliveryCh); err != nil {
 }
 ```
 
-우리 서버의 두 프로듀서도 이 방식으로 발행한다. `Produce()`는 librdkafka의 전송 큐에 직접 메시지를 넣는다. 큐가 가득 차면 호출한 자리에서 `ErrQueueFull`을 받을 수 있다. 반환값이 `nil`이면 큐가 메시지를 받아들인 것이고, 실제 전송 성공 여부는 나중에 `deliveryCh`로 받은 메시지의 `TopicPartition.Error`에서 확인한다. [Produce() 구현과 반환값](https://github.com/confluentinc/confluent-kafka-go/blob/v2.12.0/kafka/producer.go#L298-L314)
+같은 메시지를 `Produce()`에 넘기면 함수가 librdkafka의 전송 큐에 직접 넣는다. 큐가 가득 찼다면 호출한 자리에서 `ErrQueueFull`을 받을 수 있다. 반환값이 `nil`이면 큐가 메시지를 받아들였다는 뜻이다. 브로커로 전송한 결과는 나중에 `deliveryCh`로 돌아오고, 받은 메시지의 `TopicPartition.Error`에서 성공 여부를 확인한다. [Produce() 구현과 반환값](https://github.com/confluentinc/confluent-kafka-go/blob/v2.12.0/kafka/producer.go#L298-L314)
+
+두 방식은 초기 버전부터 함께 있었다. 2022년 11월 Confluent는 채널 방식에서 `Len()`과 `Flush()`의 결과를 신뢰하기 어렵다는 점을 문서에 명시하고, `ProduceChannel()`을 deprecated로 표시했다. 지금 권장하는 방식은 `Produce()`다. [최초 구현](https://github.com/confluentinc/confluent-kafka-go/blob/65ae73b/kafka/producer.go) · [Confluent PR #894](https://github.com/confluentinc/confluent-kafka-go/pull/894)
+
+우리 서버의 두 프로듀서도 모두 `Produce()`를 쓴다. 발행 경로는 Go 채널을 거치지 않는데, 초기화 코드를 열어 보니 프로듀서마다 그 채널에 메시지 100만 개를 담을 자리가 잡혀 있었다.
 
 ## 쓰지 않는 채널에 왜 100만 칸이 있을까?
 
