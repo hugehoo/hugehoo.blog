@@ -40,7 +40,12 @@ if err := p.Produce(msg, deliveryCh); err != nil {
 }
 ```
 
-같은 메시지를 `Produce()`에 넘기면 함수가 librdkafka의 전송 큐에 직접 넣는다. 큐가 가득 찼다면 호출한 자리에서 `ErrQueueFull`을 받을 수 있다. 반환값이 `nil`이면 큐가 메시지를 받아들였다는 뜻이다. 브로커로 전송한 결과는 나중에 `deliveryCh`로 돌아오고, 받은 메시지의 `TopicPartition.Error`에서 성공 여부를 확인한다. [Produce() 구현과 반환값](https://github.com/confluentinc/confluent-kafka-go/blob/v2.12.0/kafka/producer.go#L298-L314)
+같은 1 KiB 메시지를 `Produce(msg, deliveryCh)`에 넘기면, 호출한 고루틴이 `*kafka.Message` 포인터를 내부 함수 `p.produce`에 바로 전달한다. 채널 방식에서 SDK 고루틴이 포인터를 꺼낸 뒤 호출하던 바로 그 함수다. [Produce()의 직접 호출](https://github.com/confluentinc/confluent-kafka-go/blob/v2.12.0/kafka/producer.go#L308-L314) · [채널을 읽은 뒤의 호출](https://github.com/confluentinc/confluent-kafka-go/blob/v2.12.0/kafka/producer.go#L615-L624)
+
+여기서부터 본문을 복사하는 과정은 같다. SDK가 `msg.Value`의 시작 주소와 길이를 넘기면, librdkafka가 그 주소에서 1,024바이트를 읽어 C 메모리에 복사한다. 두 방식 사이에 생기는 차이는 **애플리케이션이 다음 줄로 넘어갈 때 복사가 어디까지 끝났는가**다. [두 방식이 공유하는 복사 코드](https://github.com/confluentinc/confluent-kafka-go/blob/v2.12.0/kafka/producer.go#L280-L285)
+
+- `p.ProduceChannel() <- msg`가 끝나면 Go 채널이 포인터를 받아들인 상태다. SDK 고루틴이 아직 본문을 읽기 전일 수 있으므로 이 시점에 원본 바이트를 덮어쓰면 안 된다.
+- `p.Produce(msg, deliveryCh)`가 `nil`을 반환하면 본문 복사와 전송 큐 등록이 모두 끝났다. 이때부터 원본 바이트 버퍼를 재사용할 수 있다. 큐가 가득 차면 호출한 자리에서 `ErrQueueFull`을 받을 수 있고, 큐에 들어간 메시지의 실제 전송 결과는 나중에 `deliveryCh`로 받은 메시지의 `TopicPartition.Error`에서 확인한다. [Produce()의 반환값과 전송 결과](https://github.com/confluentinc/confluent-kafka-go/blob/v2.12.0/kafka/producer.go#L298-L314)
 
 두 방식은 초기 버전부터 함께 있었다. 2022년 11월 Confluent는 채널 방식에서 `Len()`과 `Flush()`의 결과를 신뢰하기 어렵다는 점을 문서에 명시하고, `ProduceChannel()`을 deprecated로 표시했다. 지금 권장하는 방식은 `Produce()`다. [최초 구현](https://github.com/confluentinc/confluent-kafka-go/blob/65ae73b/kafka/producer.go) · [Confluent PR #894](https://github.com/confluentinc/confluent-kafka-go/pull/894)
 
