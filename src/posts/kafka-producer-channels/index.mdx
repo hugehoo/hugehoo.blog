@@ -1,56 +1,59 @@
 ---
-title: 'Go Kafka 프로듀서의 ProduceChannel과 Events는 어떻게 다를까?'
+title: 'Produce()로 보내는데 왜 ProduceChannel에 100만 칸이 필요할까?'
 slug: kafka-producer-channels
 date: 2026-11-14
-desc: '발행 채널을 100만 슬롯에서 1개로 줄여도 메시지 256개가 들어간 이유와, 이벤트 채널이 찼을 때 전송 결과까지 늦어진 이유'
+desc: 'confluent-kafka-go의 두 발행 방식이 어디서 갈라지는지 따라가고, 쓰지 않는 ProduceChannel의 버퍼를 0으로 줄여 봤다.'
 category: go
 open: false
 ---
 
-Go 서버의 힙 프로파일을 보다가 Kafka 프로듀서를 만드는 두 줄에서 눈이 멈췄다. 사용 중인 라이브러리는 `confluent-kafka-go` v2.12.0이었다. 기본 설정으로 프로듀서 하나를 만들면 다음 두 채널에 각각 100만 슬롯이 생긴다.
+우리 서버는 Kafka에 메시지를 보낼 때 `p.Produce(msg, deliveryCh)`를 호출한다. 그런데 Go 클라이언트의 초기화 코드를 열어 보니 메시지 포인터 100만 개가 들어가는 채널도 만들고 있었다. 발행 코드에는 채널에 쓰는 줄이 하나도 없는데, 이 공간은 어디에 쓰일까?
+
+## 채널에 메시지를 넣던 방식
+
+`confluent-kafka-go`에는 원래부터 두 가지 발행 방식이 있었다. 메시지를 함수에 넘기는 `Produce()`와 Go 채널에 메시지를 쓰는 방식이다. 2016년 최초 구현에서는 이 채널이 공개 필드였고, 이후 `ProduceChannel()` 메서드로 꺼내 쓰게 됐다. [최초 구현](https://github.com/confluentinc/confluent-kafka-go/blob/65ae73b/kafka/producer.go) · [메서드를 추가한 커밋](https://github.com/confluentinc/confluent-kafka-go/commit/dab3c94)
 
 ```go
-p.events = make(chan Event, eventsChanSize)
+p.ProduceChannel() <- msg
+```
+
+이 한 줄이 끝나면 애플리케이션은 다음 일을 할 수 있다. 채널에서 메시지를 꺼내는 건 SDK의 고루틴이다. 이 고루틴이 Kafka 전송을 담당하는 C 라이브러리인 librdkafka의 큐에 메시지를 넘긴다. 전송 큐가 차면 고루틴이 기다리고, 그동안 Go 채널까지 차면 위 한 줄에서 애플리케이션도 기다린다. [채널을 읽는 고루틴](https://github.com/confluentinc/confluent-kafka-go/blob/v2.12.0/kafka/producer.go#L615-L624)
+
+## 지금은 Produce()로 보낸다
+
+2022년 11월, Confluent는 `ProduceChannel()`을 deprecated로 표시하고 `Produce()` 사용을 권장했다. 같은 변경에서 채널로 발행할 때는 대기 건수를 세는 `Len()`이나 남은 전송을 기다리는 `Flush()`의 결과를 신뢰하기 어렵다는 점도 문서에 명시했다. [Confluent PR #894](https://github.com/confluentinc/confluent-kafka-go/pull/894)
+
+```go
+if err := p.Produce(msg, deliveryCh); err != nil {
+    return err
+}
+```
+
+우리 서버의 두 프로듀서도 이 방식으로 발행한다. `Produce()`는 librdkafka의 전송 큐에 직접 메시지를 넣는다. 큐가 가득 차면 호출한 자리에서 `ErrQueueFull`을 받을 수 있다. 반환값이 `nil`이면 큐가 메시지를 받아들인 것이고, 실제 전송 성공 여부는 나중에 `deliveryCh`로 받은 메시지의 `TopicPartition.Error`에서 확인한다. [Produce() 구현과 반환값](https://github.com/confluentinc/confluent-kafka-go/blob/v2.12.0/kafka/producer.go#L298-L314)
+
+## 쓰지 않는 채널에 왜 100만 칸이 있을까?
+
+100만이라는 기본값은 채널 발행을 지원하던 최초 구현에 이미 있었다. 당시 코드에서 정확히 100만을 택한 이유까지는 찾지 못했다. 우리가 쓰는 v2.12.0에서도 `NewProducer()`는 앱이 어느 방식으로 발행할지와 관계없이 설정값을 읽어 아래 한 줄을 실행한다. 설정을 생략하면 여기에 100만이 들어간다. [초기 기본값](https://github.com/confluentinc/confluent-kafka-go/blob/65ae73b/kafka/producer.go#L184-L205) · [v2.12.0의 설정과 할당](https://github.com/confluentinc/confluent-kafka-go/blob/v2.12.0/kafka/producer.go#L543-L584)
+
+```go
 p.produceChannel = make(chan *Message, produceChannelSize)
 ```
 
-두 번째 줄은 메시지 본문이 들어오기 전부터 메모리를 쓴다. 64비트 환경에서 포인터 하나가 8바이트이니 빈 채널도 배열 크기만 약 7.6 MiB다. 우리 서버는 프로듀서를 두 개 쓰니까 15.3 MiB다. 그런데 이걸 한 슬롯으로 줄이면 브로커가 잠깐 느려졌을 때 메시지를 딱 하나만 받아줄까? 답은 **애플리케이션이 어느 API로 발행하느냐**에 달려 있었다. [프로듀서 초기화 코드](https://github.com/confluentinc/confluent-kafka-go/blob/v2.12.0/kafka/producer.go#L537)
+여기서 한 칸은 채널의 내부 배열에 메시지 포인터 하나를 보관할 자리다. 64비트 환경에서 포인터는 8바이트이므로 빈 채널도 100만 칸의 배열에 8,000,000바이트(약 7.63 MiB)를 쓴다. 프로듀서가 두 개면 약 15.26 MiB다. 메시지 본문이나 Kafka 전송 큐가 쓰는 메모리는 이 계산에서 제외했다.
 
-## 우리 메시지는 어느 채널을 지날까?
+## 한 칸은 남겨야 할까?
 
-`ProduceChannel()`은 애플리케이션이 메시지를 **써 넣는** 채널이다. `p.ProduceChannel() <- msg`처럼 쓰면 SDK의 고루틴이 메시지를 꺼내 내부 전송 큐로 넘긴다. 이 방식에선 Go 채널이 꽉 차면 빈자리가 생길 때까지 보내는 쪽이 기다린다. 이 채널 방식은 v2.12.0에서 deprecated 상태다.
+처음에는 우리 서버의 두 프로듀서에 `go.produce.channel.size=1`을 지정했다. 그런데 `Produce()`가 그 채널을 한 번도 지나지 않는다면 왜 한 칸을 남겨야 할까? v2.12.0에서 설정을 **0으로 명시**해 봤다.
 
-우리 코드에서 실제로 호출하는 메서드는 `Produce()`였다. 두 방식은 첫 단계부터 경로가 다르다.
-
-```text
-p.ProduceChannel() <- msg   → Go 채널 → SDK 고루틴 → librdkafka 전송 큐
-p.Produce(msg, deliveryCh)                        → librdkafka 전송 큐
+```go
+kafka.ConfigMap{
+    "bootstrap.servers":      brokers,
+    "go.produce.channel.size": 0,
+}
 ```
 
-`librdkafka`는 Go 클라이언트가 내부에서 사용하는 C 라이브러리다. `Produce()`가 `nil`을 반환하면 이 라이브러리가 메시지를 큐에 받아들였다는 뜻이다. 브로커 전송은 비동기로 진행한다. 이때 내부 큐가 꽉 차면 `Produce()` 호출에서 바로 `ErrQueueFull`을 받을 수 있다. [Produce와 채널 소비 루프](https://github.com/confluentinc/confluent-kafka-go/blob/v2.12.0/kafka/producer.go#L298)
+SDK는 0을 그대로 `make(chan *Message, 0)`에 넘긴다. 채널과 이를 읽는 고루틴은 여전히 생긴다. 달라지는 건 메시지를 미리 담아 둘 수 있는 칸 수다. 누군가 `p.ProduceChannel() <- msg`를 쓰면, 0에서는 고루틴이 메시지를 받아 갈 때까지 기다린다. 1에서는 빈 칸에 메시지 하나를 두고 먼저 돌아갈 수 있다. [SDK의 채널 초기화](https://github.com/confluentinc/confluent-kafka-go/blob/v2.12.0/kafka/producer.go#L583-L611) · [Go 명세의 채널 버퍼 설명](https://go.dev/ref/spec#Channel_types)
 
-그럼 전송 결과는 어디서 받을까? `Produce(msg, deliveryCh)`처럼 채널을 넘겼다면 그 채널로 delivery report가 온다. 애플리케이션은 반환된 메시지의 `TopicPartition.Error`를 읽어 성공과 실패를 구분한다. 우리 코드는 이 경로에서 발행 지연도 측정한다.
+로컬에서 v2.12.0의 모의 브로커 하나를 띄우고 같은 파티션에 `Produce()`로 1,000건씩 보냈다. 설정이 0일 때 `cap(p.ProduceChannel())`은 0, 1일 때는 1이었다. 두 경우 모두 성공한 전송 결과 1,000건이 발행 순서대로 돌아왔고, `Flush()`가 반환한 미전송 건수도 0이었다.
 
-남은 하나인 `Events()`는 반대 방향이다. SDK가 여기에 이벤트를 **보내고** 애플리케이션이 **읽는다**. 우리 서버에서는 collector가 여기서 브로커 오류와 5초 주기의 통계를 읽는다. 별도 delivery 채널을 넘기지 않고 `Produce(msg, nil)`로 발행하면 기본 설정에서는 전송 결과도 `Events()`로 온다. 발행 코드와 함께 두 번째 인자까지 확인해야 어떤 채널에 부하가 걸리는지 알 수 있다. [SDK의 delivery 채널 선택](https://github.com/confluentinc/confluent-kafka-go/blob/v2.12.0/kafka/event.go#L229)
-
-## 발행 채널이 한 슬롯인데 256건이 들어갔다
-
-같은 SDK와 추적 래퍼를 쓰는 로컬 모의 브로커에서 `go.produce.channel.size`만 100만과 1로 바꿔 봤다. 브로커를 중단하고, 큐가 차는 순간을 확인하기 위해 librdkafka의 내부 큐 상한은 양쪽 모두 256건으로 맞췄다. 발행은 운영 코드와 똑같이 `Produce()`를 호출했다.
-
-| 측정 항목 | 100만 슬롯 | 1슬롯 |
-| --- | ---: | ---: |
-| 브로커 중단 후 첫 ErrQueueFull 전까지 받아들인 메시지 수 (프로듀서당) | 256 | 256 |
-| 복구 후 순서대로 소비한 메시지 수 (두 프로듀서 합계) | 6,000 / 6,000 | 6,000 / 6,000 |
-| 두 프로듀서 생성 전후의 Go 힙 증가량 | 45.80 MiB | 30.52 MiB |
-
-한 슬롯으로 줄여도 257번째 메시지에서 큐 포화 오류가 났다. 우리가 채운 큐가 어디인지 숫자로도 드러났다. 두 프로듀서에서 줄어든 Go 힙도 약 15.3 MiB로, 처음에 포인터 크기로 계산한 값과 맞았다. 이 값은 로컬에서 GC 후 측정한 힙 차이다.
-
-## 이벤트 채널도 같이 줄일 수 있을까?
-
-이번에는 발행 채널을 1로 고정하고 `go.events.channel.size`를 100만에서 1,000으로 줄였다. collector가 계속 이벤트를 읽을 때는 두 설정 모두 10만 건을 발행하고 순서대로 읽었다. 차이는 **읽는 쪽을 멈췄을 때** 나타났다.
-
-운영에서 5초인 통계 주기를 실험에서는 10ms로 당겼다. 이벤트를 읽지 않고 약 1,000개가 쌓일 때까지 기다린 다음, 별도 delivery 채널을 지정해 메시지 하나를 보냈다. 기본값에선 2초 안에 전송 결과를 받았다. 1,000슬롯이 가득 찬 경우에는 2초가 지나도 결과가 오지 않았다. 이벤트 소비를 재개하자 기다리던 결과가 도착했고, 종료 시 미전송 건수는 0이었다.
-
-결과를 받을 채널을 따로 줬는데도 왜 기다렸을까? SDK에서는 같은 poller가 librdkafka의 이벤트를 꺼내 종류에 맞는 Go 채널로 보낸다. 통계 이벤트를 `Events()`에 보내는 순간 막히면 뒤에 있는 delivery report도 꺼내지 못한다. 실험에서 늦어진 시점은 애플리케이션이 결과를 받은 때다. 브로커가 메시지를 기록한 시각은 이 관측만으로 알 수 없다. [SDK poller의 채널 전송 코드](https://github.com/confluentinc/confluent-kafka-go/blob/v2.12.0/kafka/event.go#L293)
-
-그래서 이번 변경에서는 발행 채널만 1로 줄였다. 이쪽은 호출부에서 `Produce()`를 쓴다는 사실만으로도 100만 슬롯이 비어 있는 이유를 설명할 수 있었다. 이벤트 채널의 적정 크기를 정하려면 질문이 하나 더 필요하다. **브로커 오류가 몰릴 때 collector가 따라잡기까지 이벤트가 얼마나 쌓이는가?**
+그래서 우리처럼 `Produce()`로만 발행하는 코드라면 **0으로 둬도 된다.** 버퍼를 100만에서 1로 줄이는 것만으로 이미 큰 배열은 사라진다. 1에서 0으로 더 줄일 때 없어지는 건 포인터 한 칸이다. 두 값 사이에서 고민할 때 볼 것은 Kafka 트래픽보다 코드에 `ProduceChannel() <- msg`가 남아 있는지다.
