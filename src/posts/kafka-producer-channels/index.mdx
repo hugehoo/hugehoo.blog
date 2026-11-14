@@ -1,0 +1,109 @@
+---
+title: 'Produce()로 보내는데 왜 ProduceChannel에 100만 칸이 필요할까?'
+slug: kafka-producer-channels
+date: 2026-11-14
+desc: 'confluent-kafka-go의 두 발행 방식이 어디서 갈라지는지 따라가고, 쓰지 않는 ProduceChannel의 버퍼를 0으로 줄여 봤다.'
+category: go
+open: false
+---
+
+`confluent-kafka-go`에는 Kafka 메시지를 발행하는 방식이 두 가지 있다. 하나는 `ProduceChannel()`로 얻은 Go 채널에 메시지를 쓰는 방식이고, 다른 하나는 `Produce()` 함수에 메시지를 넘기는 방식이다. 둘 다 실제 전송은 librdkafka라는 C 라이브러리에 맡긴다. 차이는 메시지가 그 라이브러리의 전송 큐에 도달하는 과정에 있다.
+
+## ProduceChannel()로 채널에 쓰기
+
+```go
+p.ProduceChannel() <- msg
+```
+
+`ProduceChannel()`의 타입은 `chan *kafka.Message`다. 본문이 1 KiB인 메시지가 버퍼에서 대기하는 동안, 채널 한 칸에서 본문까지 따라가 보면 이렇게 생겼다.
+
+<figure style="max-width: 480px; margin: 0 auto">
+
+![64비트 Go에서 채널 한 칸의 8바이트 포인터가 kafka.Message를 가리키고, Value 슬라이스가 1 KiB 본문 배열을 가리킨다.](produce-channel-memory.png)
+
+</figure>
+
+64비트 환경에서 채널에 넣을 때 복사되는 값은 8바이트짜리 포인터 하나다. 본문은 애플리케이션이 만든 바이트 배열에 그대로 있고, `Message.Value`가 그 배열을 가리킨다. 메시지가 버퍼에서 기다리는 동안에는 이 참조를 따라 본문에 닿을 수 있어서 Go의 가비지 컬렉터도 본문을 회수하지 않는다. [Message 구조체 정의](https://github.com/confluentinc/confluent-kafka-go/blob/v2.12.0/kafka/message.go#L72-L76)
+
+SDK 고루틴이 그림 속 메시지를 꺼내면 다음 순서로 본문이 전송 큐에 들어간다.
+
+1. 고루틴이 채널 버퍼에서 `*kafka.Message` 포인터 하나를 읽는다.
+2. Go SDK는 그 포인터로 구조체의 `Value`에 접근해 본문 배열의 시작 주소와 길이(여기서는 1,024바이트)를 librdkafka에 넘긴다.
+3. librdkafka는 그 주소에서 1,024바이트를 읽어 자신이 관리하는 C 메모리에 복사한다. SDK가 전달한 `RD_KAFKA_MSG_F_COPY` 플래그가 이 복사를 요청한다. [주소와 길이, 복사 플래그를 넘기는 코드](https://github.com/confluentinc/confluent-kafka-go/blob/v2.12.0/kafka/producer.go#L280-L285)
+
+이 줄이 끝나면 Go 채널이 메시지를 받아들인 상태다. SDK의 고루틴이 채널에서 메시지를 꺼내 librdkafka의 전송 큐에 넣는다. 전송 큐가 가득 차면 고루틴이 먼저 기다린다. 그동안 애플리케이션은 Go 채널의 빈자리에 계속 쓸 수 있고, 그 자리까지 다 차면 위 줄에서 기다리게 된다. [SDK가 채널에서 메시지를 읽는 코드](https://github.com/confluentinc/confluent-kafka-go/blob/v2.12.0/kafka/producer.go#L615-L624)
+
+## Produce()로 전송 큐에 넣기
+
+```go
+if err := p.Produce(msg, deliveryCh); err != nil {
+    return err
+}
+```
+
+<figure style="max-width: 480px; margin: 0 auto">
+
+![Produce()가 ProduceChannel()을 거치지 않고 Go 본문의 주소와 길이를 librdkafka에 넘기면, librdkafka가 본문 1 KiB를 C 메모리에 복사한다.](produce-direct-copy.png)
+
+</figure>
+
+같은 1 KiB 메시지를 `Produce(msg, deliveryCh)`에 넘기면, 호출한 고루틴이 `*kafka.Message` 포인터를 내부 함수 `p.produce`에 바로 전달한다. 채널 방식에서 SDK 고루틴이 포인터를 꺼낸 뒤 호출하던 바로 그 함수다. [Produce()의 직접 호출](https://github.com/confluentinc/confluent-kafka-go/blob/v2.12.0/kafka/producer.go#L308-L314) · [채널을 읽은 뒤의 호출](https://github.com/confluentinc/confluent-kafka-go/blob/v2.12.0/kafka/producer.go#L615-L624)
+
+여기서부터 본문을 복사하는 과정은 같다. SDK가 `msg.Value`의 시작 주소와 길이를 넘기면, librdkafka가 그 주소에서 1,024바이트를 읽어 C 메모리에 복사한다. 두 방식 사이에 생기는 차이는 **애플리케이션이 다음 줄로 넘어갈 때 복사가 어디까지 끝났는가**다. [두 방식이 공유하는 복사 코드](https://github.com/confluentinc/confluent-kafka-go/blob/v2.12.0/kafka/producer.go#L280-L285)
+
+- `p.ProduceChannel() <- msg`가 끝나면 Go 채널이 포인터를 받아들인 상태다. SDK 고루틴이 아직 본문을 읽기 전일 수 있으므로 이 시점에 원본 바이트를 덮어쓰면 안 된다.
+- `p.Produce(msg, deliveryCh)`가 `nil`을 반환하면 본문 복사와 전송 큐 등록이 모두 끝났다. 이때부터 원본 바이트 버퍼를 재사용할 수 있다. 큐가 가득 차면 호출한 자리에서 `ErrQueueFull`을 받을 수 있고, 큐에 들어간 메시지의 실제 전송 결과는 나중에 `deliveryCh`로 받은 메시지의 `TopicPartition.Error`에서 확인한다. [Produce()의 반환값과 전송 결과](https://github.com/confluentinc/confluent-kafka-go/blob/v2.12.0/kafka/producer.go#L298-L314)
+
+두 방식은 초기 버전부터 함께 있었다. 2022년 11월 Confluent는 채널 방식에서 `Len()`과 `Flush()`의 결과를 신뢰하기 어렵다는 점을 문서에 명시하고, `ProduceChannel()`을 deprecated로 표시했다. 지금 권장하는 방식은 `Produce()`다. [최초 구현](https://github.com/confluentinc/confluent-kafka-go/blob/65ae73b/kafka/producer.go) · [Confluent PR #894](https://github.com/confluentinc/confluent-kafka-go/pull/894)
+
+우리 서버의 두 프로듀서도 모두 `Produce()`를 쓴다. 발행 경로는 Go 채널을 거치지 않는데, 초기화 코드를 열어 보니 프로듀서마다 그 채널에 메시지 100만 개를 담을 자리가 잡혀 있었다.
+
+## 쓰지 않는 채널에 왜 100만 칸이 있을까?
+
+100만이라는 기본값은 채널 발행을 지원하던 최초 구현에 이미 있었다. 당시 코드에서 정확히 100만을 택한 이유까지는 찾지 못했다. 우리가 쓰는 v2.12.0에서도 `NewProducer()`는 앱이 어느 방식으로 발행할지와 관계없이 설정값을 읽어 아래 한 줄을 실행한다. 설정을 생략하면 여기에 100만이 들어간다. [초기 기본값](https://github.com/confluentinc/confluent-kafka-go/blob/65ae73b/kafka/producer.go#L184-L205) · [v2.12.0의 설정과 할당](https://github.com/confluentinc/confluent-kafka-go/blob/v2.12.0/kafka/producer.go#L543-L584)
+
+```go
+p.produceChannel = make(chan *Message, produceChannelSize)
+```
+
+여기서 한 칸은 채널의 내부 배열에 메시지 포인터 하나를 보관할 자리다. 64비트 환경에서 포인터는 8바이트이므로 빈 채널도 100만 칸의 배열에 8,000,000바이트(약 7.63 MiB)를 쓴다. 프로듀서가 두 개면 약 15.26 MiB다. 메시지 본문이나 Kafka 전송 큐가 쓰는 메모리는 이 계산에서 제외했다.
+
+## 한 칸은 남겨야 할까?
+
+처음에는 우리 서버의 두 프로듀서에 `go.produce.channel.size=1`을 지정했다. 그런데 `Produce()`가 그 채널을 한 번도 지나지 않는다면 왜 한 칸을 남겨야 할까? v2.12.0에서 설정을 **0으로 명시**해 봤다.
+
+```go
+kafka.ConfigMap{
+    "bootstrap.servers":      brokers,
+    "go.produce.channel.size": 0,
+}
+```
+
+SDK는 0을 그대로 `make(chan *Message, 0)`에 넘긴다. 채널과 이를 읽는 고루틴은 여전히 생긴다. 달라지는 건 메시지를 미리 담아 둘 수 있는 칸 수다. 누군가 `p.ProduceChannel() <- msg`를 쓰면, 0에서는 고루틴이 메시지를 받아 갈 때까지 기다린다. 1에서는 빈 칸에 메시지 하나를 두고 먼저 돌아갈 수 있다. [SDK의 채널 초기화](https://github.com/confluentinc/confluent-kafka-go/blob/v2.12.0/kafka/producer.go#L583-L611) · [Go 명세의 채널 버퍼 설명](https://go.dev/ref/spec#Channel_types)
+
+로컬에서 v2.12.0의 모의 브로커 하나를 띄우고 같은 파티션에 `Produce()`로 1,000건씩 보냈다. 설정이 0일 때 `cap(p.ProduceChannel())`은 0, 1일 때는 1이었다. 두 경우 모두 성공한 전송 결과 1,000건이 발행 순서대로 돌아왔고, `Flush()`가 반환한 미전송 건수도 0이었다.
+
+그래서 우리처럼 `Produce()`로만 발행하는 코드라면 **0으로 둬도 된다.** 버퍼를 100만에서 1로 줄이는 것만으로 이미 큰 배열은 사라진다. 1에서 0으로 더 줄일 때 없어지는 건 포인터 한 칸이다. 두 값 사이에서 고민할 때 볼 것은 Kafka 트래픽보다 코드에 `ProduceChannel() <- msg`가 남아 있는지다.
+
+## 운영 서버에서는 얼마나 줄었을까?
+
+2026년 9월 1일, buzzscreen-api에서 이벤트용·로그용 Kafka 프로듀서 두 개의 버퍼를 줄였다. 두 프로듀서 모두 `go.produce.channel.size`를 100만에서 1로, `go.events.channel.size`를 100만에서 1,000으로 바꿨다. 따라서 이 배포에서 관측한 절감량에는 두 종류의 채널이 모두 들어 있다. [배포된 설정](https://github.com/Buzzvil/buzzscreen-api/pull/7591/files)
+
+![9월 1일 정오 무렵 Go Total과 Heap Total이 함께 낮아진 그래프](go-memory-september-1.png)
+
+*8월 31일~9월 5일 buzzscreen-api의 평균 Go 메모리 사용량(cgo 제외, MiB). 9월 1일 정오 무렵 두 지표가 낮아졌고, 이후 며칠 동안 배포 전보다 낮은 수준을 유지했다.*
+
+오전 11시 50분부터 정오까지(KST)는 구버전과 신버전이 동시에 트래픽을 받았다. 그 10분간의 Pyroscope 프로파일에서 프로듀서 생성 함수(`newConfluentProducer`)가 차지한 보유 힙 비중은 **24.39%에서 2.16%로** 줄었다. CPU 샘플 중 GC와 힙 스캔에 쓰인 비중도 13.09%에서 9.80%로 3.29%p 낮아졌다.
+
+버전마다 프로파일에 잡힌 파드 수가 달라서 힙 합계를 그대로 비교하기는 어렵다. 대신 각 파드가 한 번씩 읽는 같은 크기의 GeoDB 파일(68.76 MiB)을 기준으로 환산했다. 프로듀서 생성 경로에 남은 힙은 파드당 약 54.1 MiB에서 3.5 MiB로, **약 50.6 MiB 줄어든 것으로 추정됐다.**
+
+컨테이너 전체에서도 그만큼 줄었을까? Datadog에서 배포 전후 Kafka 발행량이 초당 13,000건 이상 16,000건 미만인 5분 구간만 골랐다. 배포 전 16개 구간과 배포 후 47개 구간의 평균이다. [운영 전후 비교 기록](https://github.com/Buzzvil/adtracker/pull/1489)
+
+| 운영 지표 | 배포 전 | 배포 후 |
+| --- | ---: | ---: |
+| Kafka 발행량 | 14,507건/초 | 14,630건/초 |
+| Go live heap | 224.5 MiB | 173.3 MiB |
+| 앱 컨테이너 RSS | 493.0 MiB | 446.7 MiB |
+| Kafka 발행 지연 (5분별 p95의 평균) | 764.9 ms | 764.0 ms |
+
+비슷한 발행량에서 Go live heap은 약 23%, 컨테이너 RSS는 약 9% 낮았다. 발행 지연 p95는 양쪽 모두 약 764~765 ms였다. 이 서비스에서 눈에 띈 효과는 같은 규모의 메시지를 보내면서 파드마다 쓰는 메모리가 줄었다는 점이다.
