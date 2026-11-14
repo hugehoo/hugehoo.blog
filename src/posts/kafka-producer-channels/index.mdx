@@ -17,10 +17,7 @@ p.ProduceChannel() <- msg
 
 `ProduceChannel()`의 타입은 `chan *kafka.Message`다. 본문이 1 KiB인 메시지가 버퍼에서 대기하는 동안, 채널 한 칸에서 본문까지 따라가 보면 이렇게 생겼다.
 
-```text
-채널 버퍼 한 칸          Go의 Message 구조체       Go의 바이트 배열
-[포인터 8바이트] ──────▶ [Value []byte] ────────▶ [메시지 본문 1 KiB]
-```
+![64비트 Go에서 채널 한 칸의 8바이트 포인터가 kafka.Message를 가리키고, Value 슬라이스가 1 KiB 본문 배열을 가리킨다.](produce-channel-memory.png)
 
 64비트 환경에서 채널에 넣을 때 복사되는 값은 8바이트짜리 포인터 하나다. 본문은 애플리케이션이 만든 바이트 배열에 그대로 있고, `Message.Value`가 그 배열을 가리킨다. 메시지가 버퍼에서 기다리는 동안에는 이 참조를 따라 본문에 닿을 수 있어서 Go의 가비지 컬렉터도 본문을 회수하지 않는다. [Message 구조체 정의](https://github.com/confluentinc/confluent-kafka-go/blob/v2.12.0/kafka/message.go#L72-L76)
 
